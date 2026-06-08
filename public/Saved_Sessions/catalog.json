@@ -1,0 +1,35 @@
+{
+  "generatedAt": "2026-06-08T13:17:20.956Z",
+  "sessions": [
+    {
+      "file": "Carl_Production.eartrainer.json",
+      "url": "/Saved_Sessions/Carl_Production.eartrainer.json",
+      "sessionName": "Carl_Production",
+      "title": "Carl - Production",
+      "key": "C",
+      "keyMode": "Major",
+      "tempo": 120,
+      "bars": 5,
+      "noteRange": {
+        "lowestNote": 66,
+        "highestNote": 85
+      },
+      "updatedAt": "2026-06-08T13:17:20.943Z"
+    },
+    {
+      "file": "TwentyOnePilots_TheLine_Intro.eartrainer.json",
+      "url": "/Saved_Sessions/TwentyOnePilots_TheLine_Intro.eartrainer.json",
+      "sessionName": "TwentyOnePilots_TheLine_Intro",
+      "title": "Twenty One Pilots - The Line - Intro",
+      "key": "C",
+      "keyMode": "Major",
+      "tempo": 71,
+      "bars": 8,
+      "noteRange": {
+        "lowestNote": 49,
+        "highestNote": 73
+      },
+      "updatedAt": "2026-06-08T13:17:20.951Z"
+    }
+  ]
+}
