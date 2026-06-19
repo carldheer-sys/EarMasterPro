@@ -1,3 +1,4 @@
+use std::fs;
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::path::PathBuf;
@@ -309,12 +310,57 @@ fn open_backend_terminal(app: tauri::AppHandle, state: tauri::State<BackendState
     Ok(wait_for_backend(&format!("Backend started in Terminal on http://localhost:{BACKEND_PORT}"), false))
 }
 
+#[tauri::command]
+fn save_midi_file(default_name: String, bytes: Vec<u8>) -> Result<bool, String> {
+    let filename = if default_name.ends_with(".mid") || default_name.ends_with(".midi") {
+        default_name
+    } else {
+        format!("{default_name}.mid")
+    };
+
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "set outputPath to POSIX path of (choose file name with prompt \"Save MIDI file\" default name {})\nreturn outputPath",
+            applescript_string(&filename)
+        );
+        let output = Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .output()
+            .map_err(|err| format!("Could not open save dialog: {err}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            if stderr.contains("User canceled") || stderr.contains("-128") {
+                return Ok(false);
+            }
+            return Err(format!("Save dialog failed: {}", stderr.trim()));
+        }
+
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if path.is_empty() {
+            return Ok(false);
+        }
+
+        fs::write(&path, bytes).map_err(|err| format!("Could not save MIDI file: {err}"))?;
+        Ok(true)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = filename;
+        let _ = bytes;
+        Err("Native MIDI save dialog is not available on this platform.".to_string())
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(BackendState {
             child: Mutex::new(None),
         })
-        .invoke_handler(tauri::generate_handler![backend_status, start_backend, stop_backend, open_backend_terminal])
+        .invoke_handler(tauri::generate_handler![backend_status, start_backend, stop_backend, open_backend_terminal, save_midi_file])
         .run(tauri::generate_context!())
         .expect("error while running Ear Master Pro");
 }

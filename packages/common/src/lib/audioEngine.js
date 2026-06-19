@@ -31,6 +31,9 @@ class AudioEngine {
     this.animationFrameId = null
     this.totalTicks = 0
     this.instrumentConfigs = {}
+    this.rawContext = null
+    this.lastActiveAt = Date.now()
+    this.staleContextMs = 20 * 60 * 1000
     
     // Look-ahead scheduling
     this.lookAheadWindow = 1.0 // seconds (1000ms)
@@ -133,12 +136,15 @@ class AudioEngine {
   }
 
   async initialize(options = {}) {
-    if (this.isInitialized) return
+    const rawContext = Tone.context?.rawContext
+    if (this.isInitialized && this.rawContext === rawContext && Tone.context.state !== 'closed' && rawContext?.state !== 'closed') return
+    if (this.isInitialized) this.dispose()
 
     try {
+      const latencyHint = options.latencyHint || 'playback'
       // Set latencyHint to 'playback' for stability with large MIDI sequences
-      if (!Tone.context._initialized) {
-        await Tone.setContext(new Tone.Context({ latencyHint: 'playback' }))
+      if (!Tone.context._initialized || Tone.context.state === 'closed' || Tone.context.rawContext?.state === 'closed') {
+        await Tone.setContext(new Tone.Context({ latencyHint }))
       }
       
       Tone.context.lookAhead = 0.05
@@ -156,6 +162,8 @@ class AudioEngine {
       Tone.Transport.timeSignature = 4
       Tone.Transport.loop = false
 
+      this.rawContext = Tone.context.rawContext
+      this.lastActiveAt = Date.now()
       this.isInitialized = true
       console.log('Audio engine initialized with playback latency hint')
     } catch (error) {
@@ -164,16 +172,60 @@ class AudioEngine {
     }
   }
 
-  async startAudioContext() {
-    if (!this.isInitialized) {
-      await this.initialize()
-    }
-    
+  async ensureActive(options = {}) {
+    const latencyHint = options.latencyHint || 'playback'
+    const loadDefaultPiano = options.loadDefaultPiano !== false
+    const rawBefore = Tone.context?.rawContext
+    const toneState = Tone.context?.state
+    const rawState = rawBefore?.state
+    const stale = this.isInitialized && Date.now() - this.lastActiveAt > this.staleContextMs
+    const forceRebuild = options.forceRebuild || stale || toneState === 'closed' || rawState === 'closed'
+    let contextChanged = false
+
     try {
-      if (Tone.context.state !== 'running') {
-        await Tone.start()
-        console.log('Audio context started')
-      }
+      if (navigator.audioSession) navigator.audioSession.type = 'playback'
+    } catch (_) {}
+
+    if (forceRebuild) {
+      this.dispose()
+      await Tone.setContext(new Tone.Context({ latencyHint }))
+      Tone.context.lookAhead = 0.05
+      contextChanged = true
+    }
+
+    if (!this.isInitialized) {
+      await this.initialize({ loadDefaultPiano, latencyHint })
+      contextChanged = contextChanged || this.rawContext !== rawBefore
+    } else if (this.rawContext && this.rawContext !== Tone.context.rawContext) {
+      this.dispose()
+      await this.initialize({ loadDefaultPiano, latencyHint })
+      contextChanged = true
+    }
+
+    await Tone.start()
+    if (Tone.context.state !== 'running') await Tone.context.resume()
+    if (Tone.context.rawContext?.state !== 'running') await Tone.context.rawContext.resume()
+
+    if (Tone.context.state === 'closed' || Tone.context.rawContext?.state === 'closed') {
+      this.dispose()
+      await Tone.setContext(new Tone.Context({ latencyHint }))
+      Tone.context.lookAhead = 0.05
+      await this.initialize({ loadDefaultPiano, latencyHint })
+      await Tone.start()
+      if (Tone.context.state !== 'running') await Tone.context.resume()
+      if (Tone.context.rawContext?.state !== 'running') await Tone.context.rawContext.resume()
+      contextChanged = true
+    }
+
+    this.rawContext = Tone.context.rawContext
+    this.lastActiveAt = Date.now()
+    return { contextChanged, rawContext: Tone.context.rawContext }
+  }
+
+  async startAudioContext() {
+    try {
+      await this.ensureActive()
+      console.log('Audio context started')
       return true
     } catch (error) {
       console.error('Failed to start audio context:', error)
@@ -297,12 +349,14 @@ class AudioEngine {
   async start(startBeat = 0) {
     if (!this.isInitialized) await this.initialize()
     
-    await this.startAudioContext()
+    const contextStarted = await this.startAudioContext()
+    if (!contextStarted) throw new Error('Audio context could not be started')
     
     console.log('[AudioEngine] start() called, allNotes.length:', this.allNotes.length)
     
     Tone.Transport.position = `${Math.round(startBeat * Tone.Transport.PPQ)}i`
     Tone.Transport.start()
+    this.lastActiveAt = Date.now()
     
     this.startPositionTracking()
     this.startLookAheadScheduler()
@@ -713,6 +767,8 @@ class AudioEngine {
       this.midiGain = null
     }
     try { Tone.Transport.stop() } catch (_) {}
+    this.rawContext = null
+    this.lastActiveAt = Date.now()
     this.isInitialized = false
   }
 }

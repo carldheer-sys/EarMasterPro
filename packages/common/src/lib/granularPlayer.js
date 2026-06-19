@@ -42,6 +42,12 @@ export class GranularPlayer {
       throw new Error('GranularPlayer.initialize requires a valid AudioContext')
     }
 
+    if (this.audioContext && this.audioContext !== audioContext) {
+      this.stop()
+      if (this.gainNode) { try { this.gainNode.disconnect() } catch (_) {} ; this.gainNode = null }
+      this.workletReady = false
+    }
+
     this.audioContext = audioContext
     this.sampleRate = audioContext.sampleRate
 

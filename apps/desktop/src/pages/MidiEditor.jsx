@@ -65,6 +65,9 @@ function MidiEditor() {
   const mainScrollRef = useRef(null)
   const audioStopEventRef = useRef(null) // Transport event id for audio stop
   const analysisMenuRef = useRef(null)
+  const lastRawContextRef = useRef(null)
+  const lastPlaybackVerifiedAtRef = useRef(Date.now())
+  const playbackWatchdogTimerRef = useRef(null)
 
   const beatWidth = INITIAL_BEAT_WIDTH * zoom
   const beatsPerBar = beatsPerBarFromTimeSignature(timeSignature)
@@ -82,6 +85,7 @@ function MidiEditor() {
         await audioEngine.initialize()
         await audioEngine.loadInstrument('piano', { attack: 0.02, release: 1, volume: -6 })
         await audioEngine.loadInstrument('synth', { volume: -8 })
+        lastRawContextRef.current = Tone.context.rawContext
         setIsInitialized(true)
       } catch (error) {
         console.error('Failed to initialize audio:', error)
@@ -402,11 +406,53 @@ function MidiEditor() {
     console.log('[handleClearAll] Notes cleared. New state should be empty.')
   }, [notes, saveHistory])
 
+  const ensurePlaybackAudio = useCallback(async () => {
+    const { contextChanged, rawContext } = await audioEngine.ensureActive({ loadDefaultPiano: false })
+    if (contextChanged || lastRawContextRef.current !== rawContext) {
+      await audioEngine.loadInstrument('piano', { attack: 0.02, release: 1, volume: -6 })
+      await audioEngine.loadInstrument('synth', { volume: -8 })
+      if (instrument) {
+        const configs = {
+          'synth': { volume: -5 },
+          'piano': { attack: 0.02, release: 1, volume: -6 },
+          'violin': { attack: 0.04, release: 1.0, volume: -4 },
+          'flute': { attack: 0.04, release: 0.5, volume: -2 },
+          'clarinet': { attack: 0.04, release: 0.3, volume: -4 },
+          'guitar-acoustic': { attack: 0.01, release: 1.2, volume: -4 }
+        }
+        await audioEngine.loadInstrument(instrument, configs[instrument] || {})
+      }
+      if (refAudioBuffer) {
+        if (refAudioPlayer) {
+          try { refAudioPlayer.dispose() } catch (_) {}
+        }
+        const player = new Tone.Player(refAudioBuffer).toDestination()
+        player.loop = isLooping
+        player.volume.value = refAudioSolo ? refAudioVolume : (refAudioMuted ? -Infinity : refAudioVolume)
+        setRefAudioPlayer(player)
+        lastRawContextRef.current = rawContext
+        return player
+      }
+      lastRawContextRef.current = rawContext
+    }
+    setIsInitialized(true)
+    return refAudioPlayer
+  }, [instrument, refAudioBuffer, refAudioPlayer, isLooping, refAudioSolo, refAudioVolume, refAudioMuted])
+
   const handlePlay = useCallback(async () => {
-    if (!isInitialized) return
+    if (!isInitialized && !audioEngine.isInitialized) return
 
     console.log('[handlePlay] Starting playback. Notes in state:', notes.length)
     console.log('[handlePlay] First 5 notes:', notes.slice(0, 5).map(n => ({ id: n.id, note: n.note, start: n.start })))
+
+    let activeRefAudioPlayer
+    try {
+      activeRefAudioPlayer = await ensurePlaybackAudio()
+    } catch (error) {
+      console.error('Failed to prepare audio playback:', error)
+      alert('Audio playback could not be recovered. Please try again.')
+      return
+    }
 
     const internalTempo = getInternalBpm(tempo, timeSignature)
     const pixelsPerSecond = beatWidth * internalTempo / 60
@@ -480,10 +526,15 @@ function MidiEditor() {
       audioEngine.setLoopEnabledBeats(true, regionTotalBeats)
     }
 
+    const playbackStartedFrom = {
+      rawTime: Tone.context.rawContext?.currentTime || 0,
+      transportTicks: Tone.Transport.ticks,
+      cursorPosition
+    }
     await audioEngine.start()
 
     // ── Audio player: always driven by Transport so it stays in sync ──
-    if (refAudioPlayer && showRefTrack) {
+    if (activeRefAudioPlayer && showRefTrack) {
       // Clear any previous Transport stop event for audio
       if (audioStopEventRef.current !== null) {
         Tone.Transport.clear(audioStopEventRef.current)
@@ -499,14 +550,14 @@ function MidiEditor() {
 
       if (isLooping) {
         // Configure player to loop between the two region points in the buffer
-        refAudioPlayer.loop = true
-        refAudioPlayer.loopStart = bufferOffset
-        refAudioPlayer.loopEnd   = bufferOffset + regionDurationSeconds
+        activeRefAudioPlayer.loop = true
+        activeRefAudioPlayer.loopStart = bufferOffset
+        activeRefAudioPlayer.loopEnd   = bufferOffset + regionDurationSeconds
       } else {
-        refAudioPlayer.loop = false
+        activeRefAudioPlayer.loop = false
         // Schedule audio stop at exact region end on the Transport timeline
         audioStopEventRef.current = Tone.Transport.schedule(() => {
-          try { refAudioPlayer.stop() } catch (_) {}
+          try { activeRefAudioPlayer.stop() } catch (_) {}
         }, `${regionDurationSeconds}`)
       }
 
@@ -516,14 +567,53 @@ function MidiEditor() {
         regionDurationSeconds,
         isLooping
       })
-      refAudioPlayer.start(`+${startDelay}`, bufferOffset)
+      activeRefAudioPlayer.start(`+${startDelay}`, bufferOffset)
     }
 
     setIsPlaying(true)
     setIsPaused(false)
-  }, [isInitialized, notes, timeDivision, bars, beatsPerBar, volume, isLooping, instrument, refAudioPlayer, showRefTrack, audioDelay, tempo, regionStart, regionEnd])
+
+    if (playbackWatchdogTimerRef.current) window.clearTimeout(playbackWatchdogTimerRef.current)
+    playbackWatchdogTimerRef.current = window.setTimeout(async () => {
+      const rawContext = Tone.context.rawContext
+      const rawAdvanced = rawContext ? rawContext.currentTime > playbackStartedFrom.rawTime + 0.15 : false
+      const ticksAdvanced = Tone.Transport.ticks > playbackStartedFrom.transportTicks + 2
+      const cursorAdvanced = cursorPosition > playbackStartedFrom.cursorPosition + 0.001
+      if (Tone.context.state === 'running' && rawAdvanced && (ticksAdvanced || cursorAdvanced)) {
+        lastPlaybackVerifiedAtRef.current = Date.now()
+        return
+      }
+      try {
+        console.warn('[MidiEditor] Playback stalled; rebuilding audio context')
+        if (audioStopEventRef.current !== null) {
+          Tone.Transport.clear(audioStopEventRef.current)
+          audioStopEventRef.current = null
+        }
+        audioEngine.stop()
+        if (activeRefAudioPlayer) {
+          try { activeRefAudioPlayer.stop() } catch (_) {}
+        }
+        setIsPlaying(false)
+        setIsPaused(false)
+        await audioEngine.ensureActive({ forceRebuild: true, loadDefaultPiano: false })
+        lastRawContextRef.current = Tone.context.rawContext
+        setIsInitialized(false)
+        await audioEngine.loadInstrument('piano', { attack: 0.02, release: 1, volume: -6 })
+        await audioEngine.loadInstrument('synth', { volume: -8 })
+        setIsInitialized(true)
+        window.setTimeout(() => handlePlay(), 150)
+      } catch (error) {
+        console.error('Automatic audio recovery failed:', error)
+        alert('Audio playback stalled and could not be recovered automatically. Please try pressing Play again.')
+      }
+    }, 900)
+  }, [isInitialized, notes, timeDivision, bars, beatsPerBar, volume, isLooping, instrument, showRefTrack, audioDelay, tempo, timeSignature, regionStart, regionEnd, ensurePlaybackAudio, cursorPosition])
 
   const handleStop = useCallback(() => {
+    if (playbackWatchdogTimerRef.current) {
+      window.clearTimeout(playbackWatchdogTimerRef.current)
+      playbackWatchdogTimerRef.current = null
+    }
     // Clear the scheduled audio stop event if it exists
     if (audioStopEventRef.current !== null) {
       Tone.Transport.clear(audioStopEventRef.current)
@@ -596,8 +686,8 @@ function MidiEditor() {
 
     try {
       const arrayBuffer = await file.arrayBuffer()
-      const audioContext = Tone.getContext()
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      await audioEngine.ensureActive({ loadDefaultPiano: false })
+      const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer)
       
       setRefAudioBuffer(audioBuffer)
       

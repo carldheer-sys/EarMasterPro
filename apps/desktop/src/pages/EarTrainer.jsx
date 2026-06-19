@@ -131,6 +131,8 @@ function EarTrainer() {
   const instrumentalsFileInputRef = useRef(null)
   const audioStopEventRef = useRef(null)
   const sessionFileInputRef = useRef(null)
+  const lastRawContextRef = useRef(null)
+  const playbackWatchdogTimerRef = useRef(null)
 
   const configs = {
     'synth': { volume: -8 },
@@ -149,6 +151,7 @@ function EarTrainer() {
         await audioEngine.initialize()
         await audioEngine.loadInstrument('piano', { attack: 0.02, release: 1, volume: -6 })
         await audioEngine.loadInstrument('synth', { volume: -8 })
+        lastRawContextRef.current = Tone.context.rawContext
         setIsInitialized(true)
       } catch (error) {
         console.error('Failed to initialize audio:', error)
@@ -225,6 +228,10 @@ function EarTrainer() {
   }, [])
 
   const handleStop = useCallback(() => {
+    if (playbackWatchdogTimerRef.current) {
+      window.clearTimeout(playbackWatchdogTimerRef.current)
+      playbackWatchdogTimerRef.current = null
+    }
     audioEngine.stop()
     if (dronePlayerRef.current) dronePlayerRef.current.stop()
     if (instrumentalsPlayerRef.current) instrumentalsPlayerRef.current.stop()
@@ -234,36 +241,47 @@ function EarTrainer() {
     setCursorPosition(0)
   }, [])
 
-  const handlePlay = useCallback(async () => {
-    if (!isInitialized) return
-
-    // ── Ensure GranularPlayer instances are initialized ──
-    // Create a separate native AudioContext for GranularPlayer, independent of Tone.js
-    // This avoids any issues with Tone.js's context wrapper
-    let nativeAudioContext = null
-    
-    // Try to reuse existing context first
-    if (dronePlayerRef.current?.audioContext) {
-      nativeAudioContext = dronePlayerRef.current.audioContext
-    } else {
-      // Create a new native AudioContext
-      nativeAudioContext = new AudioContext()
-      console.log('[EarTrainer] Created new native AudioContext for GranularPlayer')
+  const ensurePlaybackAudio = useCallback(async () => {
+    const { contextChanged, rawContext } = await audioEngine.ensureActive({ loadDefaultPiano: false })
+    if (contextChanged || lastRawContextRef.current !== rawContext) {
+      await audioEngine.loadInstrument('piano', { attack: 0.02, release: 1, volume: -6 })
+      await audioEngine.loadInstrument('synth', { volume: -8 })
+      if (instrument) await audioEngine.loadInstrument(instrument, configs[instrument] || {})
+      if (chordsInstrument) await audioEngine.loadInstrument(chordsInstrument, configs[chordsInstrument] || {})
+      granularInitializedRef.current = false
+      lastRawContextRef.current = rawContext
     }
-    
-    if (!granularInitializedRef.current) {
-      const initPlayer = async (ref, volume) => {
-        if (ref.current) {
-          await ref.current.initialize(nativeAudioContext)
-          ref.current.volume = volume
-        }
+
+    const initPlayer = async (ref, volume) => {
+      if (ref.current) {
+        await ref.current.initialize(rawContext)
+        ref.current.volume = volume
       }
+    }
+    const players = [dronePlayerRef.current, instrumentalsPlayerRef.current, vocalsPlayerRef.current].filter(Boolean)
+    const needsGranularInit = !granularInitializedRef.current || players.some(player => player.audioContext !== rawContext)
+    if (needsGranularInit) {
       await Promise.all([
         initPlayer(dronePlayerRef, backgroundVolume),
         initPlayer(instrumentalsPlayerRef, backgroundVolume),
         initPlayer(vocalsPlayerRef, melodyVolume)
       ])
       granularInitializedRef.current = true
+    }
+    setIsInitialized(true)
+    return rawContext
+  }, [instrument, chordsInstrument, backgroundVolume, melodyVolume])
+
+  const handlePlay = useCallback(async () => {
+    if (!isInitialized && !audioEngine.isInitialized) return
+
+    let toneRawContext
+    try {
+      toneRawContext = await ensurePlaybackAudio()
+    } catch (error) {
+      console.error('Failed to prepare audio playback:', error)
+      showToast('Audio playback could not be recovered. Please try again.', 'error')
+      return
     }
 
     const totalBeats = bars * beatsPerBar
@@ -348,7 +366,7 @@ function EarTrainer() {
     // We use Tone's own underlying AudioContext (not nativeAudioContext) so both
     // the Transport clock and the solfege buffers share the exact same timeline.
     if (melodyMode === 'solfege' && regionNotes.length > 0) {
-      const toneRawCtx = Tone.context.rawContext
+      const toneRawCtx = toneRawContext
       // Re-initialize solfegePlayer against Tone's AudioContext if needed
       if (!solfegePlayer._ctx || solfegePlayer._ctx !== toneRawCtx) {
         await solfegePlayer.initialize(toneRawCtx)
@@ -418,10 +436,44 @@ function EarTrainer() {
       )
     }
 
+    const playbackStartedFrom = {
+      rawTime: toneRawContext?.currentTime || 0,
+      transportTicks: Tone.Transport.ticks,
+      cursorPosition
+    }
     setIsPlaying(true)
+
+    if (playbackWatchdogTimerRef.current) window.clearTimeout(playbackWatchdogTimerRef.current)
+    playbackWatchdogTimerRef.current = window.setTimeout(async () => {
+      const rawContext = Tone.context.rawContext
+      const rawAdvanced = rawContext ? rawContext.currentTime > playbackStartedFrom.rawTime + 0.15 : false
+      const ticksAdvanced = Tone.Transport.ticks > playbackStartedFrom.transportTicks + 2
+      const cursorAdvanced = cursorPosition > playbackStartedFrom.cursorPosition + 0.001
+      if (Tone.context.state === 'running' && rawAdvanced && (ticksAdvanced || cursorAdvanced)) return
+      try {
+        console.warn('[EarTrainer] Playback stalled; rebuilding audio context')
+        audioEngine.stop()
+        if (dronePlayerRef.current) dronePlayerRef.current.stop()
+        if (instrumentalsPlayerRef.current) instrumentalsPlayerRef.current.stop()
+        if (vocalsPlayerRef.current) vocalsPlayerRef.current.stop()
+        solfegePlayer.stop()
+        setIsPlaying(false)
+        granularInitializedRef.current = false
+        await audioEngine.ensureActive({ forceRebuild: true, loadDefaultPiano: false })
+        lastRawContextRef.current = Tone.context.rawContext
+        setIsInitialized(false)
+        await audioEngine.loadInstrument('piano', { attack: 0.02, release: 1, volume: -6 })
+        await audioEngine.loadInstrument('synth', { volume: -8 })
+        setIsInitialized(true)
+        window.setTimeout(() => handlePlay(), 150)
+      } catch (error) {
+        console.error('Automatic audio recovery failed:', error)
+        showToast('Audio playback stalled and could not be recovered automatically. Please try pressing Play again.', 'error')
+      }
+    }, 900)
   }, [isInitialized, notes, timeDivision, bars, beatsPerBar, melodyVolume, isLooping, instrument,
-      droneAudioBuffer, chordsNotes, chordsInstrument, instrumentalsAudioBuffer, vocalsAudioBuffer, backgroundTrack,
-      backgroundVolume, tempo, regionStart, regionEnd, melodyMode, playbackSpeed, selectedKey])
+      chordsNotes, chordsInstrument, instrumentalsAudioBuffer, vocalsAudioBuffer, backgroundTrack,
+      backgroundVolume, tempo, regionStart, regionEnd, melodyMode, playbackSpeed, selectedKey, ensurePlaybackAudio, cursorPosition, showToast])
 
 
   const handleLoopToggle = useCallback(() => {
@@ -598,6 +650,7 @@ function EarTrainer() {
       const loadedName = file.name.replace('.eartrainer.json', '') || pkg.sessionName || 'Untitled Session'
       const sd = pkg.settings || {}
       const ef = pkg.embeddedFiles || {}
+      await audioEngine.ensureActive({ loadDefaultPiano: false })
 
       // Restore all settings
       console.log('[Session Load] Settings from file:', sd)
@@ -1013,6 +1066,7 @@ function EarTrainer() {
     
     try {
       const arrayBuffer = await file.arrayBuffer()
+      await audioEngine.ensureActive({ loadDefaultPiano: false })
       const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer)
 
       // Create a GranularPlayer and load the buffer into it.
@@ -1090,6 +1144,7 @@ function EarTrainer() {
     
     try {
       const arrayBuffer = await file.arrayBuffer()
+      await audioEngine.ensureActive({ loadDefaultPiano: false })
       const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer)
 
       // Create a GranularPlayer and load the buffer into it.

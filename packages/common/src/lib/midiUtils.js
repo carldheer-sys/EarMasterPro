@@ -1,4 +1,6 @@
-import { Midi } from '@tonejs/midi'
+import MidiPackage from '@tonejs/midi'
+
+const { Midi } = MidiPackage
 
 const FLAT_TO_SHARP_KEYS = {
   Db: 'C#',
@@ -154,9 +156,9 @@ export const exportToMidi = (notes, tempo, timeDivision = '1/8', pickupBeats = 0
   const normalizedKeyMode = normalizeKeyMode(keyMode)
   const midiKey = SHARP_TO_FLAT_KEYS[key] || key || 'C'
   const normalizedTimeSignature = normalizeTimeSignature(timeSignature)
+  const internalTempo = getInternalBpm(tempo, normalizedTimeSignature)
   
   if (midi.header) {
-    const internalTempo = getInternalBpm(tempo, timeSignature)
     midi.header.setTempo(internalTempo)
     midi.header.timeSignatures.push({
       timeSignature: [normalizedTimeSignature.numerator, normalizedTimeSignature.denominator],
@@ -170,20 +172,19 @@ export const exportToMidi = (notes, tempo, timeDivision = '1/8', pickupBeats = 0
   }
   
   // Store timeDivision and pickupBeats as track name metadata (MIDI doesn't have a standard field for this)
-  track.name = `TimeDivision:${timeDivision};PickupBeats:${pickupBeats};Key:${key};KeyMode:${normalizedKeyMode};TimeSignature:${timeSignatureToString(normalizedTimeSignature)}`
+  track.name = `TimeDivision:${timeDivision};PickupBeats:${pickupBeats};Key:${key};KeyMode:${normalizedKeyMode};TimeSignature:${timeSignatureToString(normalizedTimeSignature)};Timing:TicksV2`
   
-  const beatsPerSecond = tempo / 60
-  const secondsPerBeat = 1 / beatsPerSecond
+  const ticksPerBeat = midi.header?.ppq || 480
   
   notes.forEach(noteData => {
-    const time = noteData.start * secondsPerBeat
-    const duration = noteData.duration * secondsPerBeat
+    const ticks = Math.round(noteData.start * ticksPerBeat)
+    const durationTicks = Math.max(1, Math.round(noteData.duration * ticksPerBeat))
     
     track.addNote({
       name: noteData.note,
-      time: time,
-      duration: duration,
-      velocity: noteData.velocity || 0.8
+      ticks,
+      durationTicks,
+      velocity: noteData.velocity ?? 0.8
     })
   })
   
@@ -193,6 +194,13 @@ export const exportToMidi = (notes, tempo, timeDivision = '1/8', pickupBeats = 0
 
 export const saveMidiFile = async (blob, defaultName = "my_sequence") => {
   try {
+    const tauriInvoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.tauri?.invoke || null
+    if (tauriInvoke) {
+      const filename = `${defaultName}.mid`
+      const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()))
+      return await tauriInvoke('save_midi_file', { defaultName: filename, bytes })
+    }
+
     if ('showSaveFilePicker' in window) {
       const filename = `${defaultName}.mid`
       
@@ -286,12 +294,14 @@ export const importFromMidi = async (arrayBuffer, currentTempo) => {
       throw new Error("No notes found in the MIDI file.")
     }
     
-    const midiTempo = midi.header?.tempos?.length > 0 ? midi.header.tempos[0].bpm : currentTempo
+    const midiTempoFromHeader = midi.header?.tempos?.length > 0 ? midi.header.tempos[0].bpm : null
     
     // Try to extract timeDivision and pickupBeats from track name metadata
     let timeDivision = '1/8' // default
     let pickupBeats = 0 // default
     let timeSignature = parseTimeSignature(midi.header?.timeSignatures?.[0]?.timeSignature || DEFAULT_TIME_SIGNATURE)
+    let hasEarMasterMetadata = false
+    let usesTickTiming = false
     
     let key = normalizeKeyName(midi.header?.keySignatures?.[0]?.key || 'C')
     let keyMode = normalizeKeyMode(midi.header?.keySignatures?.[0]?.scale)
@@ -300,33 +310,47 @@ export const importFromMidi = async (arrayBuffer, currentTempo) => {
       const parts = trackWithNotes.name.split(';')
       parts.forEach(part => {
         if (part.startsWith('TimeDivision:')) {
+          hasEarMasterMetadata = true
           timeDivision = part.replace('TimeDivision:', '')
         } else if (part.startsWith('PickupBeats:')) {
+          hasEarMasterMetadata = true
           pickupBeats = parseFloat(part.replace('PickupBeats:', ''))
         } else if (part.startsWith('Key:')) {
+          hasEarMasterMetadata = true
           key = normalizeKeyName(part.replace('Key:', ''))
         } else if (part.startsWith('KeyMode:')) {
+          hasEarMasterMetadata = true
           keyMode = normalizeKeyMode(part.replace('KeyMode:', ''))
         } else if (part.startsWith('TimeSignature:')) {
+          hasEarMasterMetadata = true
           timeSignature = parseTimeSignature(part.replace('TimeSignature:', ''))
+        } else if (part.startsWith('Timing:')) {
+          usesTickTiming = part.replace('Timing:', '') === 'TicksV2'
         }
       })
       // Backwards compatibility for old format
       if (trackWithNotes.name.startsWith('TimeDivision:') && !trackWithNotes.name.includes(';')) {
+        hasEarMasterMetadata = true
         timeDivision = trackWithNotes.name.replace('TimeDivision:', '')
       }
     }
     
+    const midiTempo = midiTempoFromHeader ?? getInternalBpm(currentTempo, timeSignature)
+    const projectTempo = getProjectBpm(midiTempo, timeSignature)
+    const legacyTimingScale = hasEarMasterMetadata && !usesTickTiming && projectTempo > 0 ? getInternalBpm(projectTempo, timeSignature) / projectTempo : 1
     const beatsPerSecond = midiTempo / 60
     const secondsPerBeat = 1 / beatsPerSecond
+    const ticksPerBeat = midi.header?.ppq || 480
     
     let maxBeat = 0
     let lowestMidi = 127
     let highestMidi = 0
     
     const importedNotes = trackWithNotes.notes.map(note => {
-      const startBeat = note.time / secondsPerBeat
-      const durationBeat = note.duration / secondsPerBeat
+      const rawStartBeat = Number.isFinite(note.ticks) ? note.ticks / ticksPerBeat : note.time / secondsPerBeat
+      const rawDurationBeat = Number.isFinite(note.durationTicks) ? note.durationTicks / ticksPerBeat : note.duration / secondsPerBeat
+      const startBeat = rawStartBeat / legacyTimingScale
+      const durationBeat = rawDurationBeat / legacyTimingScale
       
       const endBeat = startBeat + durationBeat
       if (endBeat > maxBeat) {
@@ -355,7 +379,7 @@ export const importFromMidi = async (arrayBuffer, currentTempo) => {
     return {
       notes: importedNotes,
       bars,
-      tempo: getProjectBpm(midiTempo, timeSignature),
+      tempo: projectTempo,
       timeDivision,
       timeSignature,
       pickupBeats,
