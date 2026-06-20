@@ -34,6 +34,7 @@ class AudioEngine {
     this.rawContext = null
     this.lastActiveAt = Date.now()
     this.staleContextMs = 20 * 60 * 1000
+    this.keepaliveIntervalId = null
     
     // Look-ahead scheduling
     this.lookAheadWindow = 1.0 // seconds (1000ms)
@@ -60,8 +61,12 @@ class AudioEngine {
    * @param {string} instrument - Instrument name (default: 'piano')
    */
   startNote(noteName, velocity = 100, instrument = 'piano') {
+    // Fire-and-forget context recovery if needed
+    if (Tone.context?.state !== 'running' || !this.isInitialized) {
+      this.ensureActive({ loadDefaultPiano: false }).catch(() => {})
+    }
     if (!this.isInitialized) return
-    
+
     try {
       const noteId = `${noteName}_${instrument}`
       
@@ -165,6 +170,7 @@ class AudioEngine {
       this.rawContext = Tone.context.rawContext
       this.lastActiveAt = Date.now()
       this.isInitialized = true
+      this.startKeepalive()
       console.log('Audio engine initialized with playback latency hint')
     } catch (error) {
       console.error('Failed to initialize audio engine:', error)
@@ -186,6 +192,8 @@ class AudioEngine {
       if (navigator.audioSession) navigator.audioSession.type = 'playback'
     } catch (_) {}
 
+    const savedInstrumentConfigs = { ...this.instrumentConfigs }
+
     if (forceRebuild) {
       this.dispose()
       await Tone.setContext(new Tone.Context({ latencyHint }))
@@ -200,6 +208,15 @@ class AudioEngine {
       this.dispose()
       await this.initialize({ loadDefaultPiano, latencyHint })
       contextChanged = true
+    }
+
+    // Reload all previously configured instruments after a context rebuild
+    if (contextChanged && Object.keys(savedInstrumentConfigs).length > 0) {
+      for (const [inst, cfg] of Object.entries(savedInstrumentConfigs)) {
+        if (!this.samplers[inst] && !this.synths[inst]) {
+          try { await this.loadInstrument(inst, cfg) } catch (e) { console.warn(`[AudioEngine] Failed to reload instrument ${inst}:`, e) }
+        }
+      }
     }
 
     await Tone.start()
@@ -230,6 +247,35 @@ class AudioEngine {
     } catch (error) {
       console.error('Failed to start audio context:', error)
       return false
+    }
+  }
+
+  startKeepalive() {
+    this.stopKeepalive()
+    this.keepaliveIntervalId = setInterval(async () => {
+      try {
+        const rawCtx = Tone.context?.rawContext
+        if (!rawCtx) return
+        if (rawCtx.state === 'suspended') {
+          await rawCtx.resume()
+          console.log('[AudioEngine] Keepalive: resumed suspended context')
+        }
+        if (Tone.context?.state === 'suspended') {
+          await Tone.context.resume()
+        }
+        if (rawCtx.state === 'running' && this.isInitialized) {
+          this.lastActiveAt = Date.now()
+        }
+      } catch (e) {
+        console.warn('[AudioEngine] Keepalive error:', e)
+      }
+    }, 15000)
+  }
+
+  stopKeepalive() {
+    if (this.keepaliveIntervalId) {
+      clearInterval(this.keepaliveIntervalId)
+      this.keepaliveIntervalId = null
     }
   }
 
@@ -413,11 +459,23 @@ class AudioEngine {
   }
 
   async playNote(noteName, duration = '8n', instrument = 'piano') {
-    if (!this.isInitialized) return
-    
     try {
-      await this.startAudioContext()
-      
+      await this.ensureActive({ loadDefaultPiano: false })
+
+      // Reload instrument if it was lost during a context rebuild
+      if (instrument === 'synth') {
+        if (!this.synths['synth'] && this.instrumentConfigs['synth']) {
+          await this.loadInstrument('synth', this.instrumentConfigs['synth'])
+        }
+      } else {
+        if (!this.samplers[instrument] && this.instrumentConfigs[instrument]) {
+          await this.loadInstrument(instrument, this.instrumentConfigs[instrument])
+        }
+        if (!this.samplers['piano'] && this.instrumentConfigs['piano']) {
+          await this.loadInstrument('piano', this.instrumentConfigs['piano'])
+        }
+      }
+
       if (instrument === 'synth') {
         const synth = this.synths['synth']
         if (synth) {
@@ -767,6 +825,7 @@ class AudioEngine {
       this.midiGain = null
     }
     try { Tone.Transport.stop() } catch (_) {}
+    this.stopKeepalive()
     this.rawContext = null
     this.lastActiveAt = Date.now()
     this.isInitialized = false

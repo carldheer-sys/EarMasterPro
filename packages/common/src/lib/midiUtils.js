@@ -1,6 +1,6 @@
-import MidiPackage from '@tonejs/midi'
+import * as MidiNS from '@tonejs/midi'
 
-const { Midi } = MidiPackage
+const Midi = MidiNS.Midi || MidiNS.default?.Midi
 
 const FLAT_TO_SHARP_KEYS = {
   Db: 'C#',

@@ -1,7 +1,7 @@
-import MidiPackage from '@tonejs/midi'
+import * as MidiNS from '@tonejs/midi'
 import { exportToMidi, importFromMidi } from '../packages/common/src/lib/midiUtils.js'
 
-const { Midi } = MidiPackage
+const Midi = MidiNS.Midi || MidiNS.default?.Midi
 
 function assertClose(actual, expected, label) {
   if (Math.abs(actual - expected) > 0.0001) {
