@@ -490,18 +490,14 @@ function MidiEditor() {
     const regionTotalBeats = endBeat - startBeat  // Total beats in the active region
     // regionDurationSeconds already calculated above as regionBeats / beatsPerSecond
 
-    // Filter + remap notes into region
-    // Notes are stored with pickup offset, so we need to filter them based on the full range
-    // but remap them to be relative to the musical start (without pickup)
+    // Filter + remap notes into region — only notes that START within the region
     const regionNotes = notes
-      .filter(n => n.start < endBeat && (n.start + n.duration) > startBeat)
+      .filter(n => n.start >= startBeat - 1e-6 && n.start < endBeat)
       .map(n => {
-        // Calculate the note's position relative to the musical start (excluding pickup)
-        const relativeStart = Math.max(0, n.start - startBeat)
         return {
           ...n,
-          start:    relativeStart,
-          duration: Math.min(n.start + n.duration, endBeat) - Math.max(n.start, startBeat)
+          start: n.start - startBeat,
+          duration: Math.min(n.start + n.duration, endBeat) - n.start
         }
       })
 

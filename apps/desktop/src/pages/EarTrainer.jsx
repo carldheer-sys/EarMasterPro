@@ -295,13 +295,13 @@ function EarTrainer() {
     const effectiveBps = (internalTempo * playbackSpeed) / 60
     const wallClockDuration = regionBeats / effectiveBps
 
-    // Filter + remap notes into region
+    // Filter + remap notes into region — only notes that START within the region
     const regionNotes = notes
-      .filter(n => n.start < endBeat && (n.start + n.duration) > startBeat)
+      .filter(n => n.start >= startBeat - 1e-6 && n.start < endBeat)
       .map(n => ({
         ...n,
-        start: Math.max(0, n.start - startBeat),
-        duration: Math.min(n.start + n.duration, endBeat) - Math.max(n.start, startBeat)
+        start: n.start - startBeat,
+        duration: Math.min(n.start + n.duration, endBeat) - n.start
       }))
 
     // Clear everything before scheduling
@@ -316,7 +316,7 @@ function EarTrainer() {
 
     // Combine all MIDI notes (melody + chords) into a single array for scheduling
     let allMidiNotes = []
-    
+
     // Add melody notes if melody mode is pitches
     if (melodyMode === 'pitches') {
       const melodyNotesWithSettings = regionNotes.map(n => ({
@@ -326,7 +326,61 @@ function EarTrainer() {
       }))
       allMidiNotes = allMidiNotes.concat(melodyNotesWithSettings)
     }
-    
+
+    // ── Chords background: MIDI-based playback with chosen instrument ──
+    if (backgroundTrack === 'chords' && chordsNotes.length > 0) {
+      const regionChordsNotes = chordsNotes
+        .filter(n => n.start >= startBeat - 1e-6 && n.start < endBeat)
+        .map(n => ({
+          ...n,
+          start: n.start - startBeat,
+          instrument: chordsInstrument,
+          volume: backgroundVolume
+        }))
+      allMidiNotes = allMidiNotes.concat(regionChordsNotes)
+    }
+
+    // Schedule all MIDI notes together (melody + chords) BEFORE starting Transport
+    // so that the note at tick 0 is not missed
+    if (allMidiNotes.length > 0) {
+      Tone.Transport.timeSignature = beatsPerBar
+      audioEngine.scheduleNotes(allMidiNotes, timeDivision, Math.ceil(regionBeats / beatsPerBar), instrument, melodyVolume)
+      audioEngine.totalTicks = Math.round(regionBeats * ppq)
+    }
+
+    // ── Drone background: pure MIDI synth, scheduled before Transport starts ──
+    if (backgroundTrack === 'drone') {
+      audioEngine.scheduleDroneNotes(selectedKey, regionBeats, backgroundVolume)
+    }
+
+    // Schedule stop or loop in BEATS (transport-time) so it fires at the correct
+    // wall-clock moment regardless of playbackSpeed.
+    if (!isLooping) {
+      audioEngine.scheduleStopAtBeats(regionBeats)
+    } else {
+      audioEngine.setLoopEnabledBeats(true, regionBeats)
+    }
+
+    // Start Transport — all MIDI notes are already scheduled on the Transport timeline
+    await audioEngine.start()
+
+    // ── Solfege playback ──
+    // IMPORTANT: scheduled AFTER audioEngine.start() so the Transport is already
+    // running and Tone.context.rawContext.currentTime is a stable reference.
+    if (melodyMode === 'solfege' && regionNotes.length > 0) {
+      const toneRawCtx = toneRawContext
+      if (!solfegePlayer._ctx || solfegePlayer._ctx !== toneRawCtx) {
+        await solfegePlayer.initialize(toneRawCtx)
+      }
+      if (!solfegePlayer.isReady()) {
+        await solfegePlayer.loadAll()
+      }
+      solfegePlayer.volume = melodyVolume
+      const toneStartTime = toneRawCtx.currentTime + Tone.context.lookAhead
+      const scaledTempo = tempo * playbackSpeed
+      solfegePlayer.scheduleNotes(regionNotes, selectedKey, scaledTempo, toneStartTime)
+    }
+
     // Play vocals audio if melody mode is vocals
     if (melodyMode === 'vocals' && vocalsPlayerRef.current && vocalsAudioBuffer) {
       const player = vocalsPlayerRef.current
@@ -347,65 +401,6 @@ function EarTrainer() {
         loopEndSec,
         isLooping ? null : onEnded
       )
-    }
-
-    // Schedule stop or loop in BEATS (transport-time) so it fires at the correct
-    // wall-clock moment regardless of playbackSpeed.
-    if (!isLooping) {
-      // regionBeats beats at tempo*playbackSpeed BPM = correct wall-clock duration
-      audioEngine.scheduleStopAtBeats(regionBeats)
-    } else {
-      audioEngine.setLoopEnabledBeats(true, regionBeats)
-    }
-
-    await audioEngine.start()
-
-    // ── Solfege playback ──
-    // IMPORTANT: scheduled AFTER audioEngine.start() so the Transport is already
-    // running and Tone.context.rawContext.currentTime is a stable reference.
-    // We use Tone's own underlying AudioContext (not nativeAudioContext) so both
-    // the Transport clock and the solfege buffers share the exact same timeline.
-    if (melodyMode === 'solfege' && regionNotes.length > 0) {
-      const toneRawCtx = toneRawContext
-      // Re-initialize solfegePlayer against Tone's AudioContext if needed
-      if (!solfegePlayer._ctx || solfegePlayer._ctx !== toneRawCtx) {
-        await solfegePlayer.initialize(toneRawCtx)
-      }
-      if (!solfegePlayer.isReady()) {
-        await solfegePlayer.loadAll()
-      }
-      solfegePlayer.volume = melodyVolume
-      const toneStartTime = toneRawCtx.currentTime + Tone.context.lookAhead
-      const scaledTempo = tempo * playbackSpeed
-      solfegePlayer.scheduleNotes(regionNotes, selectedKey, scaledTempo, toneStartTime)
-    }
-
-    // ── Drone background: pure MIDI synth, no audio file needed ──
-    if (backgroundTrack === 'drone') {
-      audioEngine.scheduleDroneNotes(selectedKey, regionBeats, backgroundVolume)
-    }
-
-    // ── Chords background: MIDI-based playback with chosen instrument ──
-    if (backgroundTrack === 'chords' && chordsNotes.length > 0) {
-      // Filter chords notes to active region
-      const regionChordsNotes = chordsNotes
-        .filter(n => n.start >= startBeat && n.start < endBeat)
-        .map(n => ({
-          ...n,
-          start: n.start - startBeat, // Remap to region-relative time
-          instrument: chordsInstrument,
-          volume: backgroundVolume
-        }))
-      
-      allMidiNotes = allMidiNotes.concat(regionChordsNotes)
-    }
-    
-    // Schedule all MIDI notes together (melody + chords) in a single call
-    if (allMidiNotes.length > 0) {
-      Tone.Transport.timeSignature = beatsPerBar
-      audioEngine.scheduleNotes(allMidiNotes, timeDivision, Math.ceil(regionBeats / beatsPerBar), instrument, melodyVolume)
-      // Re-override totalTicks after scheduleNotes (which overwrites it internally)
-      audioEngine.totalTicks = Math.round(regionBeats * ppq)
     }
 
     // ── Background audio: GranularPlayer (pitch-preserving time-stretch) ──
@@ -598,21 +593,53 @@ function EarTrainer() {
 
       // Use native file picker to save
       const suggestedName = sessionName !== 'Untitled Session' ? `${sessionName}.eartrainer.json` : 'session.eartrainer.json'
-      
-      const fileHandle = await window.showSaveFilePicker({
-        suggestedName,
-        types: [{
-          description: 'EarTrainer Session',
-          accept: { 'application/json': ['.eartrainer.json'] }
-        }]
-      })
+      const jsonString = JSON.stringify(sessionPackage, null, 2)
 
-      const writable = await fileHandle.createWritable()
-      await writable.write(JSON.stringify(sessionPackage, null, 2))
-      await writable.close()
+      // 1. Try Tauri native save dialog
+      const tauriInvoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.tauri?.invoke || null
+      if (tauriInvoke) {
+        const bytes = Array.from(new TextEncoder().encode(jsonString))
+        const savedPath = await tauriInvoke('save_session_file', { defaultName: suggestedName, bytes })
+        if (savedPath) {
+          const savedName = savedPath.split('/').pop().replace('.eartrainer.json', '').replace('.json', '')
+          setSessionName(savedName)
+          showToast(`Session "${savedName}" saved successfully!`, 'success')
+        }
+        return
+      }
 
-      // Extract session name from saved filename
-      const savedName = fileHandle.name.replace('.eartrainer.json', '')
+      // 2. Try File System Access API (web browsers)
+      if ('showSaveFilePicker' in window) {
+        const fileHandle = await window.showSaveFilePicker({
+          suggestedName,
+          types: [{
+            description: 'EarTrainer Session',
+            accept: { 'application/json': ['.eartrainer.json'] }
+          }]
+        })
+
+        const writable = await fileHandle.createWritable()
+        await writable.write(jsonString)
+        await writable.close()
+
+        const savedName = fileHandle.name.replace('.eartrainer.json', '')
+        setSessionName(savedName)
+        showToast(`Session "${savedName}" saved successfully!`, 'success')
+        return
+      }
+
+      // 3. Fallback: download via anchor element
+      const blob = new Blob([jsonString], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.style.display = 'none'
+      a.href = url
+      a.download = suggestedName
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      const savedName = suggestedName.replace('.eartrainer.json', '')
       setSessionName(savedName)
       showToast(`Session "${savedName}" saved successfully!`, 'success')
     } catch (error) {
