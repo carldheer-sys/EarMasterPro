@@ -1909,7 +1909,7 @@ function EarTrainer() {
               className="h-7 w-7"
               title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
             >
-              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-500" />}
             </Button>
           </div>
           <span>Space to play/stop • Cmd/Ctrl+Scroll to zoom • Shift+Scroll to pan</span>

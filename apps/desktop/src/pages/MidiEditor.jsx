@@ -405,9 +405,9 @@ function MidiEditor() {
           ...n,
           selected: ids.includes(n.id)
         }))
-        // Play the selected notes
-        const selectedNotes = updated.filter(n => n.selected)
-        selectedNotes.forEach(n => {
+        // Play only notes that are newly selected (were not selected before)
+        const newlySelected = updated.filter(n => n.selected && !prev.find(p => p.id === n.id)?.selected)
+        newlySelected.forEach(n => {
           audioEngine.playNote(n.note, '8n', instrument)
         })
         return updated
@@ -556,13 +556,20 @@ function MidiEditor() {
     const selectedIds = notes.filter(n => n.selected).map(n => n.id)
     if (selectedIds.length === 0) return
     saveHistory()
-    setNotes(prev => prev.map(n => {
-      if (!n.selected) return n
-      const midi = noteToMidiNum(n.note) + semitones
-      const clamped = Math.max(0, Math.min(127, midi))
-      return { ...n, note: midiNumToNoteName(clamped) }
-    }))
-  }, [notes, saveHistory])
+    setNotes(prev => {
+      const updated = prev.map(n => {
+        if (!n.selected) return n
+        const midi = noteToMidiNum(n.note) + semitones
+        const clamped = Math.max(0, Math.min(127, midi))
+        return { ...n, note: midiNumToNoteName(clamped) }
+      })
+      // Play all transposed (selected) notes
+      updated.filter(n => n.selected).forEach(n => {
+        audioEngine.playNote(n.note, '8n', instrument)
+      })
+      return updated
+    })
+  }, [notes, saveHistory, instrument])
 
   // Clear paste preview when exiting paste mode
   useEffect(() => {
@@ -1544,7 +1551,7 @@ function MidiEditor() {
               className="h-7 w-7"
               title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
             >
-              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-500" />}
             </Button>
           </div>
           <span>Click to add notes • Drag to move • Double-click to delete • Space to play/stop • Cmd/Ctrl+Z to undo • Cmd/Ctrl+Scroll to zoom • Cmd/Ctrl+C to copy • Cmd/Ctrl+V to paste • ↑↓ to transpose</span>

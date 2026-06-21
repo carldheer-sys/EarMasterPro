@@ -128,7 +128,7 @@ function LandingPage() {
           className="h-9 w-9 rounded-full border border-border bg-card"
           title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
         >
-          {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-500" />}
         </Button>
       </div>
     </div>
