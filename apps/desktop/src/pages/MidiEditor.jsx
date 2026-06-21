@@ -18,6 +18,22 @@ import { useMIDIInput } from '@/hooks/useMIDIInput'
 const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 const TIME_DIVISIONS = ['1/1', '1/2', '1/4', '1/8', '1/16', '1/32']
 const INITIAL_BEAT_WIDTH = 40
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+const CELL_HEIGHT = 20
+
+const noteToMidiNum = (noteName) => {
+  const match = noteName.match(/^([A-G]#?)(-?\d+)$/)
+  if (!match) return 60
+  const [, pitch, octave] = match
+  const pitchClass = NOTE_NAMES.indexOf(pitch)
+  return (parseInt(octave) + 1) * 12 + pitchClass
+}
+
+const midiNumToNoteName = (midiNum) => {
+  const octave = Math.floor(midiNum / 12) - 1
+  const pitch = NOTE_NAMES[midiNum % 12]
+  return `${pitch}${octave}`
+}
 
 function MidiEditor() {
   const navigate = useNavigate()
@@ -38,9 +54,17 @@ function MidiEditor() {
   const [isInitialized, setIsInitialized] = useState(false)
   const [cursorPosition, setCursorPosition] = useState(0)
   const [zoom, setZoom] = useState(1)
+  const zoomRef = useRef(1)
+  useEffect(() => { zoomRef.current = zoom }, [zoom])
   const [volume, setVolume] = useState(0)
   const [snapToGrid, setSnapToGrid] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+
+  // Clipboard and paste-preview state
+  const clipboardRef = useRef([])
+  const [pastePreview, setPastePreview] = useState(null) // { notes: [...], offsetBeat, offsetMidi } or null
+  const pasteMouseRef = useRef({ x: 0, y: 0 })
+  const [isPasteMode, setIsPasteMode] = useState(false)
   const [showAnalysis, setShowAnalysis] = useState(false)
   const [analysisMode, setAnalysisMode] = useState('scale-degrees') // 'notes', 'scale-degrees', 'chords', 'roman-numerals'
   const [showAnalysisMenu, setShowAnalysisMenu] = useState(false)
@@ -396,6 +420,128 @@ function MidiEditor() {
       handleSnapAllToGrid()
     }
   }, [snapToGrid])
+
+  // ── Copy selected notes to clipboard ──
+  const handleCopy = useCallback(() => {
+    const selected = notes.filter(n => n.selected)
+    if (selected.length === 0) return
+    // Find top-left-most note as anchor
+    const sorted = [...selected].sort((a, b) => {
+      const aMidi = noteToMidiNum(a.note)
+      const bMidi = noteToMidiNum(b.note)
+      if (Math.abs(a.start - b.start) < 0.001) return bMidi - aMidi // higher pitch first
+      return a.start - b.start
+    })
+    const anchorStart = sorted[0].start
+    const anchorMidi = noteToMidiNum(sorted[0].note)
+    clipboardRef.current = selected.map(n => ({
+      note: n.note,
+      start: n.start - anchorStart,
+      duration: n.duration,
+      velocity: n.velocity || 0.8,
+      _relMidi: noteToMidiNum(n.note) - anchorMidi
+    }))
+  }, [notes])
+
+  // ── Paste: enter paste mode, notes follow mouse ──
+  const handlePaste = useCallback(() => {
+    if (clipboardRef.current.length === 0) return
+    setIsPasteMode(true)
+  }, [])
+
+  // ── Compute paste preview from mouse position ──
+  const computePastePreview = useCallback((clientX, clientY) => {
+    if (clipboardRef.current.length === 0) return null
+    const scrollEl = mainScrollRef.current
+    if (!scrollEl) return null
+
+    // Find the PianoRoll canvas element inside the scroll container
+    const canvasEl = scrollEl.querySelector('canvas')
+    if (!canvasEl) return null
+
+    const canvasRect = canvasEl.getBoundingClientRect()
+    const canvasX = clientX - canvasRect.left
+    const canvasY = clientY - canvasRect.top
+
+    if (canvasX < 0 || canvasY < 0) return null
+
+    const bw = INITIAL_BEAT_WIDTH * zoom
+    const beat = canvasX / bw
+    const noteIndex = Math.floor(canvasY / CELL_HEIGHT)
+    const midiNum = highestNote - noteIndex
+
+    // Snap beat to grid if enabled
+    let snappedBeat = beat
+    if (snapToGrid) {
+      snappedBeat = Math.round(beat / beatsPerDivision) * beatsPerDivision
+    }
+
+    // Clamp midi to visible range
+    const clampedMidi = Math.max(lowestNote, Math.min(highestNote, midiNum))
+
+    // Build preview notes
+    const previewNotes = clipboardRef.current.map((cn, i) => {
+      const noteMidi = clampedMidi + cn._relMidi
+      let noteStart = snappedBeat + cn.start
+      if (snapToGrid) {
+        noteStart = Math.round(noteStart / beatsPerDivision) * beatsPerDivision
+      }
+      return {
+        id: `preview-${i}`,
+        note: midiNumToNoteName(Math.max(0, Math.min(127, noteMidi))),
+        start: Math.max(0, noteStart),
+        duration: cn.duration,
+        velocity: cn.velocity,
+        selected: false,
+        isPreview: true
+      }
+    })
+
+    return { notes: previewNotes, anchorBeat: snappedBeat, anchorMidi: clampedMidi }
+  }, [zoom, snapToGrid, beatsPerDivision, lowestNote, highestNote])
+
+  // ── Place pasted notes at current mouse position ──
+  const handlePastePlace = useCallback(() => {
+    const preview = pastePreview
+    if (!preview || preview.notes.length === 0) return
+    saveHistory()
+    const newNotes = preview.notes.map(pn => ({
+      id: generateId(),
+      note: pn.note,
+      start: pn.start,
+      duration: pn.duration,
+      velocity: pn.velocity || 0.8
+    }))
+    setNotes(prev => [...prev, ...newNotes])
+    setIsPasteMode(false)
+    setPastePreview(null)
+  }, [pastePreview, saveHistory])
+
+  // ── Cancel paste mode (Escape) ──
+  const handlePasteCancel = useCallback(() => {
+    setIsPasteMode(false)
+    setPastePreview(null)
+  }, [])
+
+  // ── Transpose selected notes by semitone delta ──
+  const handleTranspose = useCallback((semitones) => {
+    const selectedIds = notes.filter(n => n.selected).map(n => n.id)
+    if (selectedIds.length === 0) return
+    saveHistory()
+    setNotes(prev => prev.map(n => {
+      if (!n.selected) return n
+      const midi = noteToMidiNum(n.note) + semitones
+      const clamped = Math.max(0, Math.min(127, midi))
+      return { ...n, note: midiNumToNoteName(clamped) }
+    }))
+  }, [notes, saveHistory])
+
+  // Clear paste preview when exiting paste mode
+  useEffect(() => {
+    if (!isPasteMode) {
+      setPastePreview(null)
+    }
+  }, [isPasteMode])
 
   const handleClearAll = useCallback(() => {
     if (notes.length === 0) return
@@ -767,9 +913,26 @@ function MidiEditor() {
 
       if (isZoom) {
         e.preventDefault()
+        // Find the canvas element to get accurate positioning
+        const canvasEl = scrollEl.querySelector('canvas')
+        if (!canvasEl) return
+        const canvasRect = canvasEl.getBoundingClientRect()
+        const mouseOffsetFromCanvasLeft = e.clientX - canvasRect.left
+        // Beat position under the mouse pointer before zoom
+        const oldBeatWidth = INITIAL_BEAT_WIDTH * zoomRef.current
+        const beatUnderMouse = (scrollEl.scrollLeft + mouseOffsetFromCanvasLeft) / oldBeatWidth
+
         setZoom(prev => {
           const factor = e.deltaY > 0 ? 0.9 : 1.1
-          return Math.max(0.5, Math.min(3, prev * factor))
+          const next = Math.max(0.5, Math.min(3, prev * factor))
+          // After zoom, calculate new scroll position to keep the mouse-pointed beat in place
+          const newBeatWidth = INITIAL_BEAT_WIDTH * next
+          const newCanvasX = beatUnderMouse * newBeatWidth
+          const newScrollLeft = newCanvasX - mouseOffsetFromCanvasLeft
+          requestAnimationFrame(() => {
+            scrollEl.scrollLeft = Math.max(0, newScrollLeft)
+          })
+          return next
         })
       } else if (isHorizontal) {
         e.preventDefault()
@@ -782,7 +945,7 @@ function MidiEditor() {
 
     scrollEl.addEventListener('wheel', handleWheel, { passive: false })
     return () => scrollEl.removeEventListener('wheel', handleWheel)
-  }, [])  // scrollEl and setZoom are both stable across renders
+  }, [zoom])  // zoom is needed via ref; re-attach when zoom changes to keep ref in sync
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -814,11 +977,37 @@ function MidiEditor() {
           setNotes(prev => prev.filter(n => !selectedNoteIds.includes(n.id)))
         }
       }
+
+      // Copy selected notes
+      if ((e.metaKey || e.ctrlKey) && e.key === 'c' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+        e.preventDefault()
+        handleCopy()
+      }
+
+      // Paste: enter paste mode
+      if ((e.metaKey || e.ctrlKey) && e.key === 'v' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+        e.preventDefault()
+        handlePaste()
+      }
+
+      // Escape: cancel paste mode
+      if (e.key === 'Escape' && isPasteMode) {
+        e.preventDefault()
+        handlePasteCancel()
+      }
+
+      // Arrow keys: transpose selected notes
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+        e.preventDefault()
+        const semitones = e.key === 'ArrowUp' ? 1 : -1
+        const octaveMultiplier = (e.metaKey || e.ctrlKey) ? 12 : 1
+        handleTranspose(semitones * octaveMultiplier)
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isPlaying, handlePlay, handleStop, handleUndo, handleRedo, notes, saveHistory])
+  }, [isPlaying, handlePlay, handleStop, handleUndo, handleRedo, notes, saveHistory, handleCopy, handlePaste, handlePasteCancel, handleTranspose, isPasteMode])
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -1230,7 +1419,21 @@ function MidiEditor() {
         <div className="flex-1 flex overflow-hidden">
           <div 
             ref={mainScrollRef}
-            className="flex-1 overflow-y-auto overflow-x-auto"
+            className={`flex-1 overflow-y-auto overflow-x-auto ${isPasteMode ? 'cursor-copy' : ''}`}
+            onMouseMove={(e) => {
+              if (isPasteMode) {
+                pasteMouseRef.current = { x: e.clientX, y: e.clientY }
+                const preview = computePastePreview(e.clientX, e.clientY)
+                setPastePreview(preview)
+              }
+            }}
+            onClick={(e) => {
+              if (isPasteMode) {
+                e.preventDefault()
+                e.stopPropagation()
+                handlePastePlace()
+              }
+            }}
           >
             <div className="flex flex-col" style={{ minWidth: 'max-content' }}>
               {showRefTrack && refAudioBuffer && (
@@ -1261,7 +1464,7 @@ function MidiEditor() {
                 timeSignature={timeSignature}
                 pickupBeats={0}
                 isPlaying={isPlaying}
-                notes={notes}
+                notes={isPasteMode && pastePreview ? [...notes, ...pastePreview.notes] : notes}
                 cursorPosition={cursorPosition}
                 lowestNote={lowestNote}
                 highestNote={highestNote}
@@ -1275,7 +1478,7 @@ function MidiEditor() {
                   setRegionEnd(end)
                 }}
                 autoScroll={autoScroll}
-                mode="edit"
+                mode={isPasteMode ? 'read-only' : 'edit'}
                 showAnalysis={showAnalysis}
                 analysisMode={analysisMode}
                 tonic={selectedKey}
@@ -1285,6 +1488,7 @@ function MidiEditor() {
                 onNoteUpdate={handleNoteUpdate}
                 onNoteDelete={handleNoteDelete}
                 onNotesSelect={handleNotesSelect}
+                noteOpacity={1.0}
               />
             </div>
           </div>
@@ -1294,7 +1498,7 @@ function MidiEditor() {
       <div className="border-t border-border bg-card px-4 py-2">
         <div className="text-xs text-muted-foreground flex items-center justify-between">
           <span>{notes.length} notes | {selectedKey} {keyMode} | {timeSignatureToString(timeSignature)} | {tempo} BPM</span>
-          <span>Click to add notes • Drag to move • Double-click to delete • Space to play/stop • Cmd/Ctrl+Z to undo • Cmd/Ctrl+Scroll to zoom</span>
+          <span>Click to add notes • Drag to move • Double-click to delete • Space to play/stop • Cmd/Ctrl+Z to undo • Cmd/Ctrl+Scroll to zoom • Cmd/Ctrl+C to copy • Cmd/Ctrl+V to paste • ↑↓ to transpose</span>
         </div>
       </div>
     </div>
