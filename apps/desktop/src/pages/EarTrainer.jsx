@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Play, Square, ArrowLeft, Repeat, Settings, ChevronDown, ChevronUp, Upload, Lock, FolderOpen, Save, ChevronsRight, FileMusic, Eye, ListTree } from 'lucide-react'
+import { Play, Square, ArrowLeft, Repeat, Settings, ChevronDown, ChevronUp, Upload, Lock, FolderOpen, Save, ChevronsRight, FileMusic, Eye, ListTree, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import PianoRoll from '@/components/PianoRollCanvas'
@@ -12,6 +12,7 @@ import { beatsPerBarFromTimeSignature, DEFAULT_TIME_SIGNATURE, importFromMidi, n
 import { parseSessionTitle } from '@common/lib/sessionManager'
 import { ToastContainer } from '@/components/Toast'
 import { useMIDIInput } from '@/hooks/useMIDIInput'
+import { useTheme } from '@/hooks/useTheme'
 import { BACKEND_URL } from '@/lib/backend'
 import * as Tone from 'tone'
 
@@ -19,6 +20,7 @@ const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
 function EarTrainer() {
   const navigate = useNavigate()
+  const { isDark, toggleTheme } = useTheme()
 
   // Settings (some fixed, some from MIDI import)
   const [tempo, setTempo] = useState(120)
@@ -33,6 +35,9 @@ function EarTrainer() {
   const [isInitialized, setIsInitialized] = useState(false)
   const [cursorPosition, setCursorPosition] = useState(0)
   const [zoom, setZoom] = useState(1)
+  const zoomRef = useRef(1)
+  useEffect(() => { zoomRef.current = zoom }, [zoom])
+  const zoomCenterBeatRef = useRef(null)
   const [melodyVolume, setMelodyVolume] = useState(0)
   const [backgroundVolume, setBackgroundVolume] = useState(0)
   const [autoScroll, setAutoScroll] = useState(false)
@@ -1215,6 +1220,12 @@ function EarTrainer() {
 
       if (isZoom) {
         e.preventDefault()
+        // Calculate the beat at the CENTER of the viewport before zoom
+        const containerWidth = scrollEl.offsetWidth
+        const centerCanvasX = scrollEl.scrollLeft + (containerWidth / 2) - 120
+        const oldBeatWidth = 40 * zoomRef.current
+        zoomCenterBeatRef.current = centerCanvasX / oldBeatWidth
+
         setZoom(prev => {
           const factor = e.deltaY > 0 ? 0.9 : 1.1
           return Math.max(0.5, Math.min(3, prev * factor))
@@ -1229,6 +1240,19 @@ function EarTrainer() {
     scrollEl.addEventListener('wheel', handleWheel, { passive: false })
     return () => scrollEl.removeEventListener('wheel', handleWheel)
   }, [])
+
+  // Adjust scroll position synchronously after zoom changes to prevent flicker.
+  useLayoutEffect(() => {
+    if (zoomCenterBeatRef.current === null) return
+    const scrollEl = mainScrollRef.current
+    if (!scrollEl) return
+    const containerWidth = scrollEl.offsetWidth
+    const newBeatWidth = 40 * zoom
+    const newCenterCanvasX = zoomCenterBeatRef.current * newBeatWidth
+    const newScrollLeft = newCenterCanvasX - (containerWidth / 2) + 120
+    scrollEl.scrollLeft = Math.max(0, newScrollLeft)
+    zoomCenterBeatRef.current = null
+  }, [zoom])
 
   useEffect(() => {
     const handleKeyPress = (e) => {
@@ -1867,6 +1891,7 @@ function EarTrainer() {
                 keyMode={keyMode}
                 noteOpacity={(melodyMode === 'none' || melodyMode === 'vocals') ? 0.3 : 1.0}
                 activeMidiKeys={activeMidiKeys}
+                isDark={isDark}
               />
             </div>
           </div>
@@ -1875,7 +1900,18 @@ function EarTrainer() {
 
       <div className="border-t border-border bg-card px-4 py-2">
         <div className="text-xs text-muted-foreground flex items-center justify-between">
-          <span>{notes.length} notes | {selectedKey} {keyMode} | {timeSignatureToString(timeSignature)} | {tempo} BPM (x{playbackSpeed})</span>
+          <div className="flex items-center gap-3">
+            <span>{notes.length} notes | {selectedKey} {keyMode} | {timeSignatureToString(timeSignature)} | {tempo} BPM (x{playbackSpeed})</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="h-7 w-7"
+              title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </Button>
+          </div>
           <span>Space to play/stop • Cmd/Ctrl+Scroll to zoom • Shift+Scroll to pan</span>
         </div>
       </div>

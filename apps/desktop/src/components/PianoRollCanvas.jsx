@@ -96,36 +96,44 @@ const isCNote = (midiNum) => {
  */
 function renderGrid(ctx, {
   width, height, beatWidth, barWidth, divisionWidth,
-  bars, lowestNote, highestNote, dpr, pickupBeats, beatsPerBar, beatsPerDivision
+  bars, lowestNote, highestNote, dpr, pickupBeats, beatsPerBar, beatsPerDivision, isDark = true
 }) {
   const totalNotes = highestNote - lowestNote + 1
-  
+
   // Clear canvas
   ctx.clearRect(0, 0, width, height)
-  
+
+  // Theme colors
+  const blackKeyBg = isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(180, 190, 210, 0.35)'
+  const whiteKeyBg = isDark ? 'rgba(30, 41, 59, 0.3)' : 'rgba(220, 230, 245, 0.25)'
+  const rowLine = isDark ? 'rgba(100, 116, 139, 0.2)' : 'rgba(100, 116, 139, 0.25)'
+  const cMarker = 'rgba(59, 130, 246, 0.3)'
+  const barLine = isDark ? 'rgba(255, 255, 255, 0.65)' : 'rgba(30, 41, 59, 0.55)'
+  const divLine = isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(30, 41, 59, 0.15)'
+
   // Draw note rows (alternating colors for black/white keys)
   for (let i = 0; i < totalNotes; i++) {
     const midiNum = highestNote - i
     const y = i * CELL_HEIGHT
-    
+
     if (isBlackKey(midiNum)) {
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.4)' // bg-slate-900/40
+      ctx.fillStyle = blackKeyBg
     } else {
-      ctx.fillStyle = 'rgba(30, 41, 59, 0.3)' // bg-slate-800/30
+      ctx.fillStyle = whiteKeyBg
     }
     ctx.fillRect(0, y, width, CELL_HEIGHT)
-    
+
     // Horizontal lines between notes
-    ctx.strokeStyle = 'rgba(100, 116, 139, 0.2)'
+    ctx.strokeStyle = rowLine
     ctx.lineWidth = 1 / dpr
     ctx.beginPath()
     ctx.moveTo(0, y + CELL_HEIGHT)
     ctx.lineTo(width, y + CELL_HEIGHT)
     ctx.stroke()
-    
+
     // C note marker (left edge)
     if (isCNote(midiNum)) {
-      ctx.strokeStyle = 'rgba(59, 130, 246, 0.3)'
+      ctx.strokeStyle = cMarker
       ctx.lineWidth = 2 / dpr
       ctx.beginPath()
       ctx.moveTo(0, y)
@@ -133,37 +141,37 @@ function renderGrid(ctx, {
       ctx.stroke()
     }
   }
-  
+
   // Draw bar lines (thick vertical lines)
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)'
+  ctx.strokeStyle = barLine
   ctx.lineWidth = 2 / dpr
   ctx.beginPath()
-  
+
   if (pickupBeats > 0) {
     ctx.moveTo(0, 0)
     ctx.lineTo(0, height)
   }
-  
+
   for (let barIndex = 0; barIndex <= bars; barIndex++) {
     const x = (pickupBeats + barIndex * beatsPerBar) * beatWidth
     ctx.moveTo(x, 0)
     ctx.lineTo(x, height)
   }
   ctx.stroke()
-  
+
   // Draw division lines (thin vertical lines)
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)'
+  ctx.strokeStyle = divLine
   ctx.lineWidth = 1 / dpr
   ctx.beginPath()
   const totalBeats = pickupBeats + bars * beatsPerBar
   const totalDivisions = Math.floor(totalBeats / beatsPerDivision)
-  
+
   for (let divIndex = 0; divIndex <= totalDivisions; divIndex++) {
     const beat = divIndex * beatsPerDivision
     if (beat > totalBeats + 0.0001) continue
-    const isBarLine = beat === 0 || (beat >= pickupBeats && Math.abs(((beat - pickupBeats) / beatsPerBar) - Math.round((beat - pickupBeats) / beatsPerBar)) < 0.0001)
-    if (isBarLine) continue
-    
+    const isBarLineCheck = beat === 0 || (beat >= pickupBeats && Math.abs(((beat - pickupBeats) / beatsPerBar) - Math.round((beat - pickupBeats) / beatsPerBar)) < 0.0001)
+    if (isBarLineCheck) continue
+
     const x = beat * beatWidth
     ctx.moveTo(x, 0)
     ctx.lineTo(x, height)
@@ -177,7 +185,7 @@ function renderGrid(ctx, {
  */
 function renderNotes(ctx, {
   notes, beatWidth, lowestNote, highestNote,
-  viewportStartBeat, viewportEndBeat, selectedNotes, dpr, showAnalysis, analysisMode = 'scale-degrees', noteOpacity = 1.0
+  viewportStartBeat, viewportEndBeat, selectedNotes, dpr, showAnalysis, analysisMode = 'scale-degrees', noteOpacity = 1.0, isDark = true
 }) {
   // Only render notes within viewport (with small buffer)
   const buffer = 2 // beats before/after viewport
@@ -212,21 +220,26 @@ function renderNotes(ctx, {
     ctx.quadraticCurveTo(x, y + 2, x + cornerRadius, y + 2)
     ctx.closePath()
     
-    // Fill with white/selection color (with opacity)
+    // Fill with selection color or normal note color
+    const noteFill = isDark ? `rgba(255, 255, 255, ${0.9 * noteOpacity})` : `rgba(30, 64, 175, ${0.85 * noteOpacity})`
+    const noteBorder = isDark ? `rgba(255, 255, 255, ${0.3 * noteOpacity})` : `rgba(30, 64, 175, ${0.4 * noteOpacity})`
+    const selFill = isDark ? `rgba(255, 255, 255, ${noteOpacity})` : `rgba(59, 130, 246, ${noteOpacity})`
+    const selRing = `rgba(59, 130, 246, ${noteOpacity})`
+
     if (isSelected) {
-      ctx.fillStyle = `rgba(255, 255, 255, ${noteOpacity})`
+      ctx.fillStyle = selFill
       ctx.fill()
       
       // Blue selection ring - thicker for better visibility
-      ctx.strokeStyle = `rgba(59, 130, 246, ${noteOpacity})`
+      ctx.strokeStyle = selRing
       ctx.lineWidth = 4 / dpr
       ctx.stroke()
     } else {
-      ctx.fillStyle = `rgba(255, 255, 255, ${0.9 * noteOpacity})`
+      ctx.fillStyle = noteFill
       ctx.fill()
       
       // Subtle border
-      ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 * noteOpacity})`
+      ctx.strokeStyle = noteBorder
       ctx.lineWidth = 1 / dpr
       ctx.stroke()
     }
@@ -264,7 +277,7 @@ function renderNotes(ctx, {
         ctx.textBaseline = 'middle'
 
         // Color: red for non-diatonic, white for diatonic
-        ctx.fillStyle = isNonDiatonic ? 'rgb(239, 68, 68)' : 'rgb(255, 255, 255)'
+        ctx.fillStyle = isNonDiatonic ? 'rgb(239, 68, 68)' : (isDark ? 'rgb(255, 255, 255)' : 'rgb(30, 41, 59)')
 
         // Draw text above the note (centered horizontally)
         const textX = x + w / 2
@@ -340,7 +353,8 @@ function PianoRollCanvas({
   tonic = 'C',
   keyMode = 'Major',
   noteOpacity = 1.0,
-  activeMidiKeys = new Set()
+  activeMidiKeys = new Set(),
+  isDark = true
 }) {
   const containerRef = useRef(null)
   const canvasRef = useRef(null)
@@ -584,13 +598,13 @@ function PianoRollCanvas({
     // Render grid
     renderGrid(ctx, {
       width, height, beatWidth, barWidth, divisionWidth,
-      bars, lowestNote, highestNote, dpr, pickupBeats, beatsPerBar, beatsPerDivision
+      bars, lowestNote, highestNote, dpr, pickupBeats, beatsPerBar, beatsPerDivision, isDark
     })
     
     // Render notes (with viewport culling and optional analysis)
     renderNotes(ctx, {
       notes: notesWithAnalysis, beatWidth, lowestNote, highestNote,
-      viewportStartBeat, viewportEndBeat, selectedNotes, dpr, showAnalysis, analysisMode, noteOpacity
+      viewportStartBeat, viewportEndBeat, selectedNotes, dpr, showAnalysis, analysisMode, noteOpacity, isDark
     })
     
     // Render region overlay
@@ -601,7 +615,7 @@ function PianoRollCanvas({
     })
     
   }, [notesWithAnalysis, beatWidth, barWidth, divisionWidth, bars, beatsPerBar, beatsPerDivision, gridWidth, gridHeight,
-      lowestNote, highestNote, selectedNotes, regionStart, regionEnd, scrollLeft, zoom, showAnalysis, noteOpacity])
+      lowestNote, highestNote, selectedNotes, regionStart, regionEnd, scrollLeft, zoom, showAnalysis, noteOpacity, isDark])
 
   // ═══════════════════════════════════════════════════════════════
   // INTERACTION HANDLERS (Edit mode only)
@@ -681,8 +695,8 @@ function PianoRollCanvas({
               key={note}
               className={`relative flex items-center justify-end pr-1 text-xs border-b border-border/30 ${
                 isBlackKeyNote(note)
-                  ? 'bg-slate-900 text-muted-foreground'
-                  : 'bg-slate-800 text-foreground'
+                  ? 'bg-slate-200 dark:bg-slate-900 text-muted-foreground'
+                  : 'bg-slate-100 dark:bg-slate-800 text-foreground'
               } ${getNoteColor(note)} ${activeMidiKeys.has(note) ? 'z-30' : ''}`}
               style={{ height: `${CELL_HEIGHT}px` }}
             >

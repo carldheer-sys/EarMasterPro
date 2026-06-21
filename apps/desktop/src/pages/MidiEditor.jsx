@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Play, Pause, Square, ArrowLeft, Repeat, FileDown, FileUp, Undo2, Redo2, Trash2, Settings, Volume2, Music, ChevronsRight, ChevronDown, ListTree } from 'lucide-react'
+import { Play, Pause, Square, ArrowLeft, Repeat, FileDown, FileUp, Undo2, Redo2, Trash2, Settings, Volume2, Music, ChevronsRight, ChevronDown, ListTree, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
@@ -14,6 +14,7 @@ import audioEngine from '@common/lib/audioEngine'
 import { beatsPerBarFromTimeSignature, beatsPerDivisionFromTimeDivision, DEFAULT_TIME_SIGNATURE, exportToMidi, saveMidiFile, importFromMidi, normalizeTimeSignature, timeSignatureToString, getInternalBpm } from '@common/lib/midiUtils'
 import { generateId } from '@common/lib/musicUtils'
 import { useMIDIInput } from '@/hooks/useMIDIInput'
+import { useTheme } from '@/hooks/useTheme'
 
 const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 const TIME_DIVISIONS = ['1/1', '1/2', '1/4', '1/8', '1/16', '1/32']
@@ -38,6 +39,7 @@ const midiNumToNoteName = (midiNum) => {
 function MidiEditor() {
   const navigate = useNavigate()
   const fileInputRef = useRef(null)
+  const { isDark, toggleTheme } = useTheme()
 
   const [tempo, setTempo] = useState(120)
   const [tempoInputValue, setTempoInputValue] = useState('120')
@@ -383,31 +385,57 @@ function MidiEditor() {
     setNotes(prev => {
       if (toggle) {
         // Toggle selection for specified IDs
-        return prev.map(n => {
+        const toggledNotes = prev.map(n => {
           if (ids.includes(n.id)) {
             return { ...n, selected: !n.selected }
           }
           return n
         })
+        // Play newly selected notes
+        const newlySelected = toggledNotes.filter(n => n.selected && ids.includes(n.id))
+        newlySelected.forEach(n => {
+          audioEngine.playNote(n.note, '8n', instrument)
+        })
+        return toggledNotes
       }
       
       if (exclusive) {
         // Clear all selections, then select only specified IDs
-        return prev.map(n => ({
+        const updated = prev.map(n => ({
           ...n,
           selected: ids.includes(n.id)
         }))
+        // Play the selected notes
+        const selectedNotes = updated.filter(n => n.selected)
+        selectedNotes.forEach(n => {
+          audioEngine.playNote(n.note, '8n', instrument)
+        })
+        return updated
       }
       
       // Non-exclusive: add to existing selection
-      return prev.map(n => {
+      const updated = prev.map(n => {
         if (ids.includes(n.id)) {
           return { ...n, selected: true }
         }
         return n
       })
+      // Play the newly selected notes
+      const newSelected = updated.filter(n => ids.includes(n.id))
+      newSelected.forEach(n => {
+        audioEngine.playNote(n.note, '8n', instrument)
+      })
+      return updated
     })
-  }, [])
+  }, [instrument])
+
+  // Play all selected notes when a drag ends (notes were moved)
+  const handleDragEnd = useCallback(() => {
+    const selectedNotes = notes.filter(n => n.selected)
+    selectedNotes.forEach(n => {
+      audioEngine.playNote(n.note, '8n', instrument)
+    })
+  }, [notes, instrument])
 
   const handleSnapAllToGrid = useCallback(() => {
     if (!snapToGrid) return
@@ -903,6 +931,8 @@ function MidiEditor() {
   // (deltaX !== 0 OR shiftKey+deltaY) and drive scrollLeft ourselves.
   // overflow-x is set to 'hidden' on the container so the browser never
   // consumes horizontal scroll natively — our handler owns it completely.
+  const zoomCenterBeatRef = useRef(null)
+
   useEffect(() => {
     const scrollEl = mainScrollRef.current
     if (!scrollEl) return
@@ -913,26 +943,16 @@ function MidiEditor() {
 
       if (isZoom) {
         e.preventDefault()
-        // Find the canvas element to get accurate positioning
-        const canvasEl = scrollEl.querySelector('canvas')
-        if (!canvasEl) return
-        const canvasRect = canvasEl.getBoundingClientRect()
-        const mouseOffsetFromCanvasLeft = e.clientX - canvasRect.left
-        // Beat position under the mouse pointer before zoom
+        // Calculate the beat at the CENTER of the viewport before zoom
+        const containerWidth = scrollEl.offsetWidth
+        // The canvas starts after the 120px sticky label column
+        const centerCanvasX = scrollEl.scrollLeft + (containerWidth / 2) - 120
         const oldBeatWidth = INITIAL_BEAT_WIDTH * zoomRef.current
-        const beatUnderMouse = (scrollEl.scrollLeft + mouseOffsetFromCanvasLeft) / oldBeatWidth
+        zoomCenterBeatRef.current = centerCanvasX / oldBeatWidth
 
         setZoom(prev => {
           const factor = e.deltaY > 0 ? 0.9 : 1.1
-          const next = Math.max(0.5, Math.min(3, prev * factor))
-          // After zoom, calculate new scroll position to keep the mouse-pointed beat in place
-          const newBeatWidth = INITIAL_BEAT_WIDTH * next
-          const newCanvasX = beatUnderMouse * newBeatWidth
-          const newScrollLeft = newCanvasX - mouseOffsetFromCanvasLeft
-          requestAnimationFrame(() => {
-            scrollEl.scrollLeft = Math.max(0, newScrollLeft)
-          })
-          return next
+          return Math.max(0.5, Math.min(3, prev * factor))
         })
       } else if (isHorizontal) {
         e.preventDefault()
@@ -945,7 +965,23 @@ function MidiEditor() {
 
     scrollEl.addEventListener('wheel', handleWheel, { passive: false })
     return () => scrollEl.removeEventListener('wheel', handleWheel)
-  }, [zoom])  // zoom is needed via ref; re-attach when zoom changes to keep ref in sync
+  }, [])
+
+  // Adjust scroll position synchronously after zoom changes to prevent flicker.
+  // useLayoutEffect runs after DOM updates but BEFORE the browser paints,
+  // so the user never sees an intermediate frame with wrong scroll position.
+  useLayoutEffect(() => {
+    if (zoomCenterBeatRef.current === null) return
+    const scrollEl = mainScrollRef.current
+    if (!scrollEl) return
+    const containerWidth = scrollEl.offsetWidth
+    const newBeatWidth = INITIAL_BEAT_WIDTH * zoom
+    // Position scroll so the same beat stays at the center of the viewport
+    const newCenterCanvasX = zoomCenterBeatRef.current * newBeatWidth
+    const newScrollLeft = newCenterCanvasX - (containerWidth / 2) + 120
+    scrollEl.scrollLeft = Math.max(0, newScrollLeft)
+    zoomCenterBeatRef.current = null
+  }, [zoom])
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1488,7 +1524,9 @@ function MidiEditor() {
                 onNoteUpdate={handleNoteUpdate}
                 onNoteDelete={handleNoteDelete}
                 onNotesSelect={handleNotesSelect}
+                onDragEnd={handleDragEnd}
                 noteOpacity={1.0}
+                isDark={isDark}
               />
             </div>
           </div>
@@ -1497,7 +1535,18 @@ function MidiEditor() {
 
       <div className="border-t border-border bg-card px-4 py-2">
         <div className="text-xs text-muted-foreground flex items-center justify-between">
-          <span>{notes.length} notes | {selectedKey} {keyMode} | {timeSignatureToString(timeSignature)} | {tempo} BPM</span>
+          <div className="flex items-center gap-3">
+            <span>{notes.length} notes | {selectedKey} {keyMode} | {timeSignatureToString(timeSignature)} | {tempo} BPM</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="h-7 w-7"
+              title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </Button>
+          </div>
           <span>Click to add notes • Drag to move • Double-click to delete • Space to play/stop • Cmd/Ctrl+Z to undo • Cmd/Ctrl+Scroll to zoom • Cmd/Ctrl+C to copy • Cmd/Ctrl+V to paste • ↑↓ to transpose</span>
         </div>
       </div>

@@ -1,10 +1,12 @@
 import { useNavigate } from 'react-router-dom'
-import { Music, Edit3, Headphones, Lock } from 'lucide-react'
+import { Music, Edit3, Headphones, Lock, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { motion } from 'framer-motion'
+import { useTheme } from '@/hooks/useTheme'
 
 function LandingPage() {
   const navigate = useNavigate()
+  const { isDark, toggleTheme } = useTheme()
 
   const features = [
     {
@@ -116,6 +118,18 @@ function LandingPage() {
             Select a feature above to get started
           </p>
         </motion.div>
+      </div>
+
+      <div className="fixed bottom-4 right-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleTheme}
+          className="h-9 w-9 rounded-full border border-border bg-card"
+          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+        </Button>
       </div>
     </div>
   )
