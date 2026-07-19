@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Music, Edit3, Headphones, Lock, Moon, Sun } from 'lucide-react'
+import { Edit3, Headphones, Smartphone, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { motion } from 'framer-motion'
 import { useTheme } from '@/hooks/useTheme'
@@ -9,14 +9,6 @@ function LandingPage() {
   const { isDark, toggleTheme } = useTheme()
 
   const features = [
-    {
-      id: 'transcription',
-      title: 'Transcription',
-      subtitle: 'Coming Soon!',
-      icon: Music,
-      locked: true,
-      path: null,
-    },
     {
       id: 'midi-editor',
       title: 'MIDI Editor',
@@ -32,6 +24,14 @@ function LandingPage() {
       icon: Headphones,
       locked: false,
       path: '/ear-trainer',
+    },
+    {
+      id: 'mobile-ear-training',
+      title: 'Mobile Ear Training',
+      subtitle: 'Ear training optimized for touch & mobile.',
+      icon: Smartphone,
+      locked: false,
+      path: '/mobile-ear-trainer',
     },
   ]
 
