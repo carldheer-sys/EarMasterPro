@@ -2,13 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import * as Tone from 'tone'
-import { ArrowLeft, Bug, ChevronLeft, Info, Loader2, Minus, Pause, Play, Plus, RefreshCw, Settings, Square, Moon, Sun } from 'lucide-react'
+import { ArrowLeft, Bug, ChevronLeft, Info, Loader2, Minus, Pause, Play, Plus, RefreshCw, RotateCcw, Settings, Square, Moon, Sun } from 'lucide-react'
 import audioEngine from '@common/lib/audioEngine'
 import { GranularPlayer } from '@common/lib/granularPlayer'
 import { beatsPerBarFromTimeSignature, beatsPerDivisionFromTimeDivision, DEFAULT_TIME_SIGNATURE, importFromMidi, normalizeTimeSignature, timeSignatureToString, getInternalBpm } from '@common/lib/midiUtils'
 import { loadSessionCatalog, loadSessionFromUrl, parseSessionTitle } from '@common/lib/sessionManager'
 import { solfegePlayer } from '@common/lib/solfegePlayer'
-import { useTheme } from '@/hooks/useTheme'
 import { Button } from '@/components/ui/button'
 
 const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -137,7 +136,7 @@ function releaseActiveMobileNotes(activeNotesRef) {
   activeNotesRef.current.clear()
 }
 
-function PianoRollMini({ notes, bars, timeDivision, timeSignature, lowestNote, highestNote, cursorPosition, showScaleDegrees, selectedKey }) {
+function PianoRollMini({ notes, bars, timeDivision, timeSignature, lowestNote, highestNote, cursorPosition, showScaleDegrees, selectedKey, isDark, onNoteClick, onSeek }) {
   const keyboardWidth = 37
   const beatsPerBar = beatsPerBarFromTimeSignature(timeSignature)
   const beatsPerDivision = beatsPerDivisionFromTimeDivision(timeDivision, timeSignature)
@@ -173,49 +172,73 @@ function PianoRollMini({ notes, bars, timeDivision, timeSignature, lowestNote, h
   }, [cursorPosition, contentWidth])
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-3 shadow-2xl shadow-sky-950/20">
-      <div ref={scrollRef} className="overflow-x-auto overflow-y-hidden rounded-2xl bg-slate-950/80" style={{ WebkitOverflowScrolling: 'touch' }}>
+    <div className={`rounded-3xl border p-3 shadow-2xl ${isDark ? 'border-white/10 bg-slate-900/70 shadow-sky-950/20' : 'border-slate-300 bg-slate-100/80 shadow-sky-200/20'}`}>
+      <div ref={scrollRef} className={`overflow-x-auto overflow-y-hidden rounded-2xl ${isDark ? 'bg-slate-950/80' : 'bg-slate-50/80'}`} style={{ WebkitOverflowScrolling: 'touch' }}>
         <div className="flex" style={{ width: keyboardWidth + width, height }}>
-          <div className="sticky left-0 z-20 shrink-0 border-r border-slate-700 bg-slate-950 shadow-[12px_0_24px_rgba(2,6,23,0.45)]" style={{ width: keyboardWidth, height }}>
+          <div className={`sticky left-0 z-20 shrink-0 border-r shadow-[12px_0_24px_rgba(2,6,23,0.45)] ${isDark ? 'border-slate-700 bg-slate-950' : 'border-slate-300 bg-slate-100'}`} style={{ width: keyboardWidth, height }}>
             {Array.from({ length: pitchSpan }).map((_, i) => {
               const midi = rangeHigh - i
               const y = pad + (i / pitchSpan) * (height - pad * 2)
               const rowHeight = Math.max(8, (height - pad * 2) / pitchSpan)
               const black = isBlackKeyMidi(midi)
               return (
-                <div key={midi} className={`absolute left-0 flex items-center justify-end px-1.5 text-right font-mono text-[10px] font-semibold leading-none ${black ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-950'}`} style={{ top: y, width: keyboardWidth, height: rowHeight }}>
+                <div key={midi} className={`absolute left-0 flex items-center justify-end px-1.5 text-right font-mono text-[10px] font-semibold leading-none ${black ? (isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-800 text-slate-100') : (isDark ? 'bg-slate-100 text-slate-950' : 'bg-slate-200 text-slate-800')}`} style={{ top: y, width: keyboardWidth, height: rowHeight }}>
                   {midiToNoteName(midi)}
                 </div>
               )
             })}
           </div>
-          <svg width={width} height={height} className="block shrink-0">
+          <svg width={width} height={height} className="block shrink-0" style={{ touchAction: 'manipulation' }}
+            onPointerDown={(e) => {
+              const svg = e.currentTarget
+              const rect = svg.getBoundingClientRect()
+              const clickX = e.clientX - rect.left
+              if (clickX < 0 || clickX > contentWidth) return
+              const clickY = e.clientY - rect.top
+              const beat = (clickX / contentWidth) * totalBeats
+              let clickedNote = null
+              for (const note of visibleNotes) {
+                const nx = (note.start / totalBeats) * contentWidth
+                const nw = Math.max(8, (note.duration / totalBeats) * contentWidth)
+                const midi = noteToMidi(note.note)
+                const ny = pad + ((rangeHigh - midi) / pitchSpan) * (height - pad * 2)
+                const nh = Math.max(10, (height - pad * 2) / pitchSpan * 0.78)
+                if (clickX >= nx && clickX <= nx + nw && clickY >= ny && clickY <= ny + nh) {
+                  clickedNote = note
+                  break
+                }
+              }
+              if (clickedNote && onNoteClick) onNoteClick(clickedNote)
+              else if (onSeek) onSeek(beat)
+            }}
+          >
             <defs>
               <linearGradient id="noteGradient" x1="0" x2="1">
                 <stop offset="0%" stopColor="#38bdf8" />
                 <stop offset="100%" stopColor="#818cf8" />
               </linearGradient>
             </defs>
-            <rect x={0} y={0} width={contentWidth} height={height} fill="#020617" />
-            <rect x={contentWidth} y={0} width={width - contentWidth} height={height} fill="#06122d" />
+            <rect x={0} y={0} width={contentWidth} height={height} fill={isDark ? '#020617' : '#f8fafc'} />
+            <rect x={contentWidth} y={0} width={width - contentWidth} height={height} fill={isDark ? '#06122d' : '#e2e8f0'} />
             {Array.from({ length: pitchSpan }).map((_, i) => {
               const midi = rangeHigh - i
               const y = pad + (i / pitchSpan) * (height - pad * 2)
               const rowHeight = Math.max(8, (height - pad * 2) / pitchSpan)
-              return <rect key={midi} x={0} y={y} width={contentWidth} height={rowHeight} fill={isBlackKeyMidi(midi) ? '#071022' : '#0d1b33'} opacity={isBlackKeyMidi(midi) ? '0.95' : '0.72'} />
+              const bk = isBlackKeyMidi(midi)
+              return <rect key={midi} x={0} y={y} width={contentWidth} height={rowHeight} fill={isDark ? (bk ? '#071022' : '#0d1b33') : (bk ? '#cbd5e1' : '#f1f5f9')} opacity={bk ? '0.95' : '0.72'} />
             })}
             {Array.from({ length: Math.floor(totalBeats / beatsPerDivision) + 1 }).map((_, divIndex) => {
               const beat = divIndex * beatsPerDivision
               const x = (beat / totalBeats) * contentWidth
-              return <line key={divIndex} x1={x} y1={0} x2={x} y2={height} stroke="#1e293b" strokeWidth={1} />
+              return <line key={divIndex} x1={x} y1={0} x2={x} y2={height} stroke={isDark ? '#1e293b' : '#cbd5e1'} strokeWidth={1} />
             })}
             {Array.from({ length: bars + 1 }).map((_, barIndex) => {
               const x = ((barIndex * beatsPerBar) / totalBeats) * contentWidth
-              return <line key={`bar-${barIndex}`} x1={x} y1={0} x2={x} y2={height} stroke="#334155" strokeWidth={2} />
+              return <line key={`bar-${barIndex}`} x1={x} y1={0} x2={x} y2={height} stroke={isDark ? '#334155' : '#94a3b8'} strokeWidth={2} />
             })}
             {Array.from({ length: pitchSpan }).map((_, i) => {
               const y = pad + (i / pitchSpan) * (height - pad * 2)
-              return <line key={i} x1={0} y1={y} x2={contentWidth} y2={y} stroke="#0f172a" strokeWidth="1" />
+              return <line key={i} x1={0} y1={y} x2={contentWidth} y2={y} stroke={isDark ? '#0f172a' : '#e2e8f0'} strokeWidth="1" />
             })}
             {visibleNotes.map((note, idx) => {
               const midi = noteToMidi(note.note)
@@ -224,17 +247,17 @@ function PianoRollMini({ notes, bars, timeDivision, timeSignature, lowestNote, h
               const y = pad + ((rangeHigh - midi) / pitchSpan) * (height - pad * 2)
               const h = Math.max(10, (height - pad * 2) / pitchSpan * 0.78)
               return (
-                <g key={note.id || idx}>
+                <g key={note.id || idx} style={{ cursor: 'pointer' }}>
                   <rect x={x} y={y} width={w} height={h} rx={6} fill="url(#noteGradient)" opacity="0.95" />
                   {showScaleDegrees && w > 24 && (
-                    <text x={x + 7} y={Math.max(13, y - 4)} fill="#e0f2fe" fontSize="11" fontWeight="800">
+                    <text x={x + 7} y={Math.max(13, y - 4)} fill={isDark ? '#e0f2fe' : '#0c4a6e'} fontSize="11" fontWeight="800">
                       {scaleDegree(note.note, selectedKey)}
                     </text>
                   )}
                 </g>
               )
             })}
-            <line x1={cursorPosition * contentWidth} y1="0" x2={cursorPosition * contentWidth} y2={height} stroke="#facc15" strokeWidth="3" />
+            <line x1={cursorPosition * contentWidth} y1="0" x2={cursorPosition * contentWidth} y2={height} stroke="#facc15" strokeWidth={3} />
           </svg>
         </div>
       </div>
@@ -242,28 +265,28 @@ function PianoRollMini({ notes, bars, timeDivision, timeSignature, lowestNote, h
   )
 }
 
-function SettingCard({ title, children }) {
+function SettingCard({ title, children, isDark }) {
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-black/20">
-      <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.22em] text-sky-200/80">{title}</h2>
+    <section className={`rounded-3xl border p-4 shadow-xl ${isDark ? 'border-white/10 bg-white/[0.06] shadow-black/20' : 'border-slate-300 bg-white/80 shadow-slate-200/40'}`}>
+      <h2 className={`mb-4 text-sm font-semibold uppercase tracking-[0.22em] ${isDark ? 'text-sky-200/80' : 'text-sky-700/80'}`}>{title}</h2>
       <div className="space-y-4">{children}</div>
     </section>
   )
 }
 
-function RangeSetting({ label, value, min = 0, max = 100, step = 1, onChange, suffix = '' }) {
+function RangeSetting({ label, value, min = 0, max = 100, step = 1, onChange, suffix = '', isDark }) {
   return (
     <label className="block">
       <div className="mb-2 flex items-center justify-between text-sm">
-        <span className="text-slate-200">{label}</span>
-        <span className="font-medium text-sky-200">{value}{suffix}</span>
+        <span className={isDark ? 'text-slate-200' : 'text-slate-700'}>{label}</span>
+        <span className={`font-medium ${isDark ? 'text-sky-200' : 'text-sky-700'}`}>{value}{suffix}</span>
       </div>
       <input className="w-full accent-sky-400" type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(Number(e.target.value))} />
     </label>
   )
 }
 
-function FastSelect({ label, value, options, onChange, disabled = false, compact = false, session = false }) {
+function FastSelect({ label, value, options, onChange, disabled = false, compact = false, session = false, isDark }) {
   const [open, setOpen] = useState(false)
   const [menuRect, setMenuRect] = useState(null)
   const rootRef = useRef(null)
@@ -298,13 +321,13 @@ function FastSelect({ label, value, options, onChange, disabled = false, compact
   }, [open, updateMenuRect])
 
   return (
-    <div ref={rootRef} className={`${disabled ? 'pointer-events-none opacity-50' : ''} relative ${compact ? 'rounded-[1.4rem] border border-white/10 bg-gradient-to-br from-white/[0.14] to-white/[0.05] p-2.5 text-center text-sm shadow-lg shadow-black/10' : 'block'}`}>
-      <div className={compact ? 'px-1 text-center text-xs font-medium uppercase tracking-wide text-slate-400' : 'mb-2 text-sm text-slate-200'}>{label}</div>
-      <button type="button" disabled={disabled} onClick={() => setOpen(v => !v)} className={`${session ? 'h-14 text-[0.8rem] leading-tight' : compact ? 'mt-1 h-11 text-[0.8rem]' : 'h-12 text-base'} flex w-full items-center justify-center rounded-2xl border border-white/10 bg-slate-950/80 px-3 text-center font-bold text-white ring-sky-400 transition duration-75 active:scale-[0.98] disabled:text-slate-500`}>
+    <div ref={rootRef} className={`${disabled ? 'pointer-events-none opacity-50' : ''} relative ${compact ? `rounded-[1.4rem] border p-2.5 text-center text-sm shadow-lg shadow-black/10 ${isDark ? 'border-white/10 bg-gradient-to-br from-white/[0.14] to-white/[0.05]' : 'border-slate-300 bg-gradient-to-br from-slate-200/80 to-slate-100/50'}` : 'block'}`}>
+      <div className={compact ? `px-1 text-center text-xs font-medium uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-500'}` : `mb-2 text-sm ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{label}</div>
+      <button type="button" disabled={disabled} onClick={() => setOpen(v => !v)} className={`${session ? 'h-14 text-[0.8rem] leading-tight' : compact ? 'mt-1 h-11 text-[0.8rem]' : 'h-12 text-base'} flex w-full items-center justify-center rounded-2xl border px-3 text-center font-bold ring-sky-400 transition duration-75 active:scale-[0.98] disabled:text-slate-500 ${isDark ? 'border-white/10 bg-slate-950/80 text-white' : 'border-slate-300 bg-white text-slate-800'}`}>
         <span className={`${session ? 'line-clamp-2' : 'truncate'} block w-full overflow-hidden`}>{selectedLabel}</span>
       </button>
       {open && menuRect && createPortal(
-        <div className="fixed z-[9999] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/95 p-1 shadow-2xl shadow-black/40 backdrop-blur-xl" style={{ left: menuRect.left, top: menuRect.top, width: menuRect.width, maxHeight: menuRect.maxHeight }}>
+        <div className={`fixed z-[9999] overflow-y-auto rounded-2xl border p-1 shadow-2xl shadow-black/40 backdrop-blur-xl ${isDark ? 'border-white/10 bg-slate-950/95' : 'border-slate-300 bg-white/95'}`} style={{ left: menuRect.left, top: menuRect.top, width: menuRect.width, maxHeight: menuRect.maxHeight }}>
           {options.map(opt => {
             const optionValue = opt.value || opt
             const optionLabel = opt.label || opt
@@ -314,7 +337,7 @@ function FastSelect({ label, value, options, onChange, disabled = false, compact
                 if (optionDisabled) return
                 onChange(optionValue)
                 setOpen(false)
-              }} className="flex min-h-10 w-full items-center justify-center rounded-xl px-2 text-center text-sm font-semibold text-white transition-colors duration-75 hover:bg-white/10 active:bg-sky-400/20 disabled:text-slate-600">
+              }} className={`flex min-h-10 w-full items-center justify-center rounded-xl px-2 text-center text-sm font-semibold transition-colors duration-75 hover:bg-white/10 active:bg-sky-400/20 disabled:text-slate-600 ${isDark ? 'text-white' : 'text-slate-800 hover:bg-slate-100'}`}>
                 {optionDisabled ? `${optionLabel} (not available)` : optionLabel}
               </button>
             )
@@ -326,11 +349,11 @@ function FastSelect({ label, value, options, onChange, disabled = false, compact
   )
 }
 
-function CompactSelect({ label, value, options, onChange }) {
-  return <FastSelect label={label} value={value} options={options} onChange={onChange} compact />
+function CompactSelect({ label, value, options, onChange, isDark }) {
+  return <FastSelect label={label} value={value} options={options} onChange={onChange} compact isDark={isDark} />
 }
 
-function SpeedSelect({ value, onChange }) {
+function SpeedSelect({ value, onChange, isDark }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef(null)
   const currentIndex = speedOptions.findIndex(speed => Math.abs(speed - value) < 0.001)
@@ -348,26 +371,26 @@ function SpeedSelect({ value, onChange }) {
   }, [open])
 
   return (
-    <div ref={rootRef} className="relative rounded-[1.4rem] border border-white/10 bg-gradient-to-br from-white/[0.14] to-white/[0.05] p-2.5 text-center text-sm shadow-lg shadow-black/10">
-      <div className="px-1 text-xs font-medium uppercase tracking-wide text-slate-400">Speed</div>
+    <div ref={rootRef} className={`relative rounded-[1.4rem] border p-2.5 text-center text-sm shadow-lg shadow-black/10 ${isDark ? 'border-white/10 bg-gradient-to-br from-white/[0.14] to-white/[0.05]' : 'border-slate-300 bg-gradient-to-br from-slate-200/80 to-slate-100/50'}`}>
+      <div className={`px-1 text-xs font-medium uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Speed</div>
       <div className="mt-1 grid grid-cols-[1rem_minmax(3rem,1fr)_1rem] items-center gap-1">
-        <button type="button" onClick={() => canDecrease && onChange(speedOptions[safeIndex - 1])} disabled={!canDecrease} className="flex h-7 items-center justify-center rounded-full bg-white/10 text-white transition-transform duration-75 active:scale-90 disabled:invisible">
+        <button type="button" onClick={() => canDecrease && onChange(speedOptions[safeIndex - 1])} disabled={!canDecrease} className={`flex h-7 items-center justify-center rounded-full transition-transform duration-75 active:scale-90 disabled:invisible ${isDark ? 'bg-white/10 text-white' : 'bg-slate-200 text-slate-700'}`}>
           <Minus className="h-3.5 w-3.5" />
         </button>
-        <button type="button" onClick={() => setOpen(v => !v)} className="flex h-11 w-full items-center justify-center rounded-2xl border border-white/10 bg-slate-950/80 px-1 text-center text-[0.8rem] font-bold text-white transition duration-75 active:scale-[0.98]">
+        <button type="button" onClick={() => setOpen(v => !v)} className={`flex h-11 w-full items-center justify-center rounded-2xl border px-1 text-center text-[0.8rem] font-bold transition duration-75 active:scale-[0.98] ${isDark ? 'border-white/10 bg-slate-950/80 text-white' : 'border-slate-300 bg-white text-slate-800'}`}>
           {speedLabel(value)}
         </button>
-        <button type="button" onClick={() => canIncrease && onChange(speedOptions[safeIndex + 1])} disabled={!canIncrease} className="flex h-7 items-center justify-center rounded-full bg-white/10 text-white transition-transform duration-75 active:scale-90 disabled:invisible">
+        <button type="button" onClick={() => canIncrease && onChange(speedOptions[safeIndex + 1])} disabled={!canIncrease} className={`flex h-7 items-center justify-center rounded-full transition-transform duration-75 active:scale-90 disabled:invisible ${isDark ? 'bg-white/10 text-white' : 'bg-slate-200 text-slate-700'}`}>
           <Plus className="h-3.5 w-3.5" />
         </button>
       </div>
       {open && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 p-1 shadow-2xl shadow-black/40 backdrop-blur-xl">
+        <div className={`absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-2xl border p-1 shadow-2xl shadow-black/40 backdrop-blur-xl ${isDark ? 'border-white/10 bg-slate-950/95' : 'border-slate-300 bg-white/95'}`}>
           {speedOptions.map(speed => (
             <button key={speed} type="button" onMouseDown={e => e.preventDefault()} onClick={() => {
               onChange(speed)
               setOpen(false)
-            }} className="flex min-h-10 w-full items-center justify-center rounded-xl px-2 text-sm font-semibold text-white transition-colors duration-75 hover:bg-white/10 active:bg-sky-400/20">
+            }} className={`flex min-h-10 w-full items-center justify-center rounded-xl px-2 text-sm font-semibold transition-colors duration-75 hover:bg-white/10 active:bg-sky-400/20 ${isDark ? 'text-white' : 'text-slate-800 hover:bg-slate-100'}`}>
               {speedLabel(speed)}
             </button>
           ))}
@@ -377,7 +400,7 @@ function SpeedSelect({ value, onChange }) {
   )
 }
 
-function MobileSettings({ settings, setSettings, onBack, sessionCapabilities }) {
+function MobileSettings({ settings, setSettings, onBack, sessionCapabilities, isDark }) {
   const melodyOptions = melodyStyles.map(opt => ({
     ...opt,
     disabled: opt.value === 'pitches' ? !sessionCapabilities.pitches : opt.value === 'solfege' ? !sessionCapabilities.solfege : opt.value === 'vocals' ? !sessionCapabilities.vocals : false
@@ -395,40 +418,40 @@ function MobileSettings({ settings, setSettings, onBack, sessionCapabilities }) 
     setSettings(s => ({ ...s, backgroundTrack: value }))
   }
   return (
-    <main className="mobile-safe min-h-full overflow-x-hidden bg-[radial-gradient(circle_at_top,#1e3a8a_0,#020617_42%)] px-4 py-4 text-white">
+    <main className={`mobile-safe min-h-full overflow-x-hidden px-4 py-4 ${isDark ? 'bg-[radial-gradient(circle_at_top,#1e3a8a_0,#020617_42%)] text-white' : 'bg-[radial-gradient(circle_at_top,#dbeafe_0,#f8fafc_42%)] text-slate-900'}`}>
       <div className="mx-auto flex min-h-full max-w-md flex-col">
         <div className="mb-5 flex items-center gap-3">
-          <button onClick={onBack} className="rounded-full bg-white/10 p-3 active:scale-95"><ChevronLeft className="h-5 w-5" /></button>
+          <button onClick={onBack} className={`rounded-full p-3 active:scale-95 ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}><ChevronLeft className="h-5 w-5" /></button>
           <div>
             <h1 className="text-2xl font-bold">Settings</h1>
-            <p className="text-sm text-slate-400">Mobile ear training controls</p>
+            <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Mobile ear training controls</p>
           </div>
         </div>
 
         <div className="space-y-4 pb-8">
-          <SettingCard title="Playback">
-            <RangeSetting label="Speed" min={25} max={100} step={25} value={Math.round(settings.playbackSpeed * 100)} suffix="%" onChange={v => setSettings(s => ({ ...s, playbackSpeed: v / 100 }))} />
-            <label className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
+          <SettingCard title="Playback" isDark={isDark}>
+            <RangeSetting label="Speed" min={25} max={100} step={25} value={Math.round(settings.playbackSpeed * 100)} suffix="%" onChange={v => setSettings(s => ({ ...s, playbackSpeed: v / 100 }))} isDark={isDark} />
+            <label className={`flex items-center justify-between rounded-2xl px-4 py-3 ${isDark ? 'bg-slate-950/60' : 'bg-slate-100'}`}>
               <span>Loop</span>
               <input type="checkbox" className="h-5 w-5 accent-sky-400" checked={settings.isLooping} onChange={e => setSettings(s => ({ ...s, isLooping: e.target.checked }))} />
             </label>
           </SettingCard>
 
-          <SettingCard title="Melody">
-            <RangeSetting label="Volume" value={percentFromDb(settings.melodyVolume)} suffix="%" onChange={v => setSettings(s => ({ ...s, melodyVolume: dbFromPercent(v) }))} />
-            <FastSelect label="Style" value={settings.melodyMode || 'none'} options={melodyOptions} onChange={setMelodyMode} />
-            <FastSelect label="Sound" value={settings.instrument} options={Object.keys(INSTRUMENT_CONFIGS)} onChange={v => setSettings(s => ({ ...s, instrument: v }))} disabled={settings.melodyMode !== 'pitches'} />
-            <label className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-4 py-3">
+          <SettingCard title="Melody" isDark={isDark}>
+            <RangeSetting label="Volume" value={percentFromDb(settings.melodyVolume)} suffix="%" onChange={v => setSettings(s => ({ ...s, melodyVolume: dbFromPercent(v) }))} isDark={isDark} />
+            <FastSelect label="Style" value={settings.melodyMode || 'none'} options={melodyOptions} onChange={setMelodyMode} isDark={isDark} />
+            <FastSelect label="Sound" value={settings.instrument} options={Object.keys(INSTRUMENT_CONFIGS)} onChange={v => setSettings(s => ({ ...s, instrument: v }))} disabled={settings.melodyMode !== 'pitches'} isDark={isDark} />
+            <label className={`flex items-center justify-between rounded-2xl px-4 py-3 ${isDark ? 'bg-slate-950/60' : 'bg-slate-100'}`}>
               <span>Show Scale Degrees</span>
               <input type="checkbox" className="h-5 w-5 accent-sky-400" checked={settings.showScaleDegrees} onChange={e => setSettings(s => ({ ...s, showScaleDegrees: e.target.checked }))} />
             </label>
             {settings.melodyMode === 'vocals' && !sessionCapabilities.vocals && <p className="text-xs text-amber-200">This session has no embedded vocals file.</p>}
           </SettingCard>
 
-          <SettingCard title="Background">
-            <RangeSetting label="Volume" value={percentFromDb(settings.backgroundVolume)} suffix="%" onChange={v => setSettings(s => ({ ...s, backgroundVolume: dbFromPercent(v) }))} />
-            <FastSelect label="Style" value={settings.backgroundTrack || 'none'} options={backgroundOptions} onChange={setBackgroundTrack} />
-            <FastSelect label="Sound" value={settings.chordsInstrument || 'piano'} options={Object.keys(INSTRUMENT_CONFIGS)} onChange={v => setSettings(s => ({ ...s, chordsInstrument: v }))} disabled={settings.backgroundTrack !== 'chords'} />
+          <SettingCard title="Background" isDark={isDark}>
+            <RangeSetting label="Volume" value={percentFromDb(settings.backgroundVolume)} suffix="%" onChange={v => setSettings(s => ({ ...s, backgroundVolume: dbFromPercent(v) }))} isDark={isDark} />
+            <FastSelect label="Style" value={settings.backgroundTrack || 'none'} options={backgroundOptions} onChange={setBackgroundTrack} isDark={isDark} />
+            <FastSelect label="Sound" value={settings.chordsInstrument || 'piano'} options={Object.keys(INSTRUMENT_CONFIGS)} onChange={v => setSettings(s => ({ ...s, chordsInstrument: v }))} disabled={settings.backgroundTrack !== 'chords'} isDark={isDark} />
             {settings.backgroundTrack === 'instrumentals' && !sessionCapabilities.instrumentals && <p className="text-xs text-amber-200">This session has no embedded instrumentals file.</p>}
           </SettingCard>
         </div>
@@ -439,7 +462,22 @@ function MobileSettings({ settings, setSettings, onBack, sessionCapabilities }) 
 
 function MobileEarTrainer() {
   const navigate = useNavigate()
-  const { isDark, toggleTheme } = useTheme()
+  const [isDark, setIsDark] = useState(true)
+
+  useEffect(() => {
+    document.documentElement.classList.add('dark')
+    try { localStorage.setItem('emp-theme', 'dark') } catch (_) {}
+  }, [])
+
+  const toggleTheme = useCallback(() => {
+    setIsDark(prev => {
+      const next = !prev
+      if (next) document.documentElement.classList.add('dark')
+      else document.documentElement.classList.remove('dark')
+      try { localStorage.setItem('emp-theme', next ? 'dark' : 'light') } catch (_) {}
+      return next
+    })
+  }, [])
 
   const [catalog, setCatalog] = useState([])
   const [selectedUrl, setSelectedUrl] = useState('')
@@ -450,7 +488,7 @@ function MobileEarTrainer() {
   const [settings, setSettings] = useState({
     key: 'C', keyMode: 'Major', tempo: 120, bars: 4, timeDivision: '1/8', timeSignature: DEFAULT_TIME_SIGNATURE, playbackSpeed: 1,
     instrument: 'synth', chordsInstrument: 'piano', melodyMode: 'pitches', backgroundTrack: 'drone',
-    melodyVolume: 0, backgroundVolume: 0, regionStart: 0, regionEnd: 1, isLooping: false, showScaleDegrees: true,
+    melodyVolume: 0, backgroundVolume: dbFromPercent(70), regionStart: 0, regionEnd: 1, isLooping: false, showScaleDegrees: true,
   })
   const [isInitialized, setIsInitialized] = useState(false)
   const [playbackState, setPlaybackState] = useState('stopped')
@@ -675,7 +713,7 @@ function MobileEarTrainer() {
           playbackSpeed: sd.playbackSpeed || 1, instrument: 'synth',
           chordsInstrument: sessionData.chordsInstrument || 'piano', melodyMode: 'pitches',
           backgroundTrack: 'drone', melodyVolume: sd.melodyVolume ?? 0,
-          backgroundVolume: sd.backgroundVolume ?? 0, regionStart: sd.regionStart ?? 0, regionEnd: sd.regionEnd ?? 1,
+          backgroundVolume: sd.backgroundVolume || dbFromPercent(70), regionStart: sd.regionStart ?? 0, regionEnd: sd.regionEnd ?? 1,
           isLooping: sd.isLooping ?? false,
         }))
         setNotes(sessionData.notes || [])
@@ -1050,34 +1088,65 @@ function MobileEarTrainer() {
     playRef.current = play
   }, [play])
 
+  const playNoteOnClick = useCallback(async (note) => {
+    try {
+      if (Tone.context.state !== 'running') await unlockAudioForMobile()
+      const instrument = settings.instrument === 'synth' || audioEngine.samplers[settings.instrument] ? settings.instrument : 'synth'
+      const player = instrument === 'synth' ? audioEngine.synths.synth : audioEngine.samplers[instrument]
+      if (!player) return
+      const velocity = Math.min(Math.max((note.velocity ?? 0.8) * Math.pow(10, settings.melodyVolume / 20), 0), 1)
+      player.triggerAttack(note.note, Tone.now(), velocity)
+      const durationSec = Math.max(0.3, (note.duration ?? 1) * 60 / (settings.tempo * settings.playbackSpeed))
+      window.setTimeout(() => {
+        try { player.triggerRelease?.(note.note, Tone.now()) } catch (_) {}
+      }, durationSec * 1000)
+    } catch (err) {
+      addDebugEvent('Note click play failed', { message: err.message })
+    }
+  }, [settings, unlockAudioForMobile, addDebugEvent])
+
+  const playFromBeat = useCallback((beat) => {
+    if (loading || audioPreparing) return
+    const totalBeats = settings.bars * beatsPerBarFromTimeSignature(settings.timeSignature)
+    const startBeat = settings.regionStart * totalBeats
+    const endBeat = settings.regionEnd * totalBeats
+    const clampedBeat = Math.min(Math.max(beat, startBeat), endBeat)
+    stopPlayback()
+    pausedBeatRef.current = clampedBeat
+    const fraction = totalBeats > 0 ? clampedBeat / totalBeats : 0
+    cursorPositionRef.current = fraction
+    setCursorPosition(fraction)
+    setPlaybackState('paused')
+  }, [loading, audioPreparing, settings, stopPlayback])
+
   if (screen === 'settings') {
-    return <MobileSettings settings={settings} setSettings={setSettings} onBack={() => setScreen('main')} sessionCapabilities={capabilities} />
+    return <MobileSettings settings={settings} setSettings={setSettings} onBack={() => setScreen('main')} sessionCapabilities={capabilities} isDark={isDark} />
   }
 
   return (
-    <main className="mobile-safe min-h-full overflow-hidden bg-[radial-gradient(circle_at_top,#1e3a8a_0,#020617_42%)] px-4 pb-4 pt-2 text-white">
+    <main className={`mobile-safe min-h-full overflow-hidden px-4 pb-4 pt-2 ${isDark ? 'bg-[radial-gradient(circle_at_top,#1e3a8a_0,#020617_42%)] text-white' : 'bg-[radial-gradient(circle_at_top,#dbeafe_0,#f8fafc_42%)] text-slate-900'}`}>
       <div className="mx-auto flex h-full max-w-md flex-col gap-4">
-        <header className="rounded-[2rem] border border-white/10 bg-white/[0.08] p-4 shadow-2xl shadow-black/30 backdrop-blur-xl">
+        <header className={`rounded-[2rem] border p-4 shadow-2xl backdrop-blur-xl ${isDark ? 'border-white/10 bg-white/[0.08] shadow-black/30' : 'border-slate-300 bg-white/80 shadow-slate-300/30'}`}>
           <div className="mb-4 flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2">
-              <button onClick={() => navigate('/')} className="rounded-full bg-white/10 p-2.5 shadow-lg active:scale-95">
+              <button onClick={() => navigate('/')} className={`rounded-full p-2.5 shadow-lg active:scale-95 ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}>
                 <ArrowLeft className="h-4 w-4" />
               </button>
-              <div className="truncate text-lg font-extrabold tracking-tight text-white">Ear Master Pro</div>
+              <div className="truncate text-lg font-extrabold tracking-tight">Ear Master Pro</div>
             </div>
             <div className="flex shrink-0 gap-1.5">
-              <button onClick={refreshCatalog} className="rounded-full bg-white/10 p-2.5 shadow-lg active:scale-95"><RefreshCw className="h-4 w-4" /></button>
-              <button onClick={() => setShowDebug(v => !v)} className="rounded-full bg-white/10 p-2.5 shadow-lg active:scale-95"><Bug className="h-4 w-4" /></button>
-              <button onClick={() => setScreen('settings')} className="rounded-full bg-white/10 p-2.5 shadow-lg active:scale-95"><Settings className="h-4 w-4" /></button>
+              <button onClick={refreshCatalog} className={`rounded-full p-2.5 shadow-lg active:scale-95 ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}><RefreshCw className="h-4 w-4" /></button>
+              <button onClick={() => setShowDebug(v => !v)} className={`rounded-full p-2.5 shadow-lg active:scale-95 ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}><Bug className="h-4 w-4" /></button>
+              <button onClick={() => setScreen('settings')} className={`rounded-full p-2.5 shadow-lg active:scale-95 ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}><Settings className="h-4 w-4" /></button>
             </div>
           </div>
 
           <div className="mb-4">
             <div className="min-w-0">
-              <p className="text-sm font-bold uppercase tracking-[0.16em] text-sky-100">{titleParts.artist}</p>
-              <h1 className="mt-1 whitespace-normal break-words text-2xl font-extrabold leading-tight text-white">{titleParts.song}</h1>
-              {titleParts.section && <p className="mt-1 text-sm font-bold uppercase tracking-[0.16em] text-sky-100/90">{titleParts.section}</p>}
-              <p className="mt-2 text-sm font-medium text-slate-300">Key {settings.key} {keyModeLabel(settings.keyMode)} · {settings.tempo} BPM</p>
+              <p className={`text-sm font-bold uppercase tracking-[0.16em] ${isDark ? 'text-sky-100' : 'text-sky-700'}`}>{titleParts.artist}</p>
+              <h1 className="mt-1 whitespace-normal break-words text-2xl font-extrabold leading-tight">{titleParts.song}</h1>
+              {titleParts.section && <p className={`mt-1 text-sm font-bold uppercase tracking-[0.16em] ${isDark ? 'text-sky-100/90' : 'text-sky-600/90'}`}>{titleParts.section}</p>}
+              <p className={`mt-2 text-sm font-medium ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>Key {settings.key} {keyModeLabel(settings.keyMode)} · {settings.tempo} BPM</p>
             </div>
           </div>
 
@@ -1089,6 +1158,7 @@ function MobileEarTrainer() {
               onChange={setSelectedUrl}
               disabled={isBusy}
               session
+              isDark={isDark}
             />
           </div>
 
@@ -1123,22 +1193,28 @@ function MobileEarTrainer() {
         )}
 
         <div className="grid grid-cols-3 gap-3 text-center text-sm">
-          <CompactSelect label="Melody" value={settings.melodyMode || 'none'} options={melodyOptions} onChange={setMelodyMode} />
-          <CompactSelect label="Background" value={settings.backgroundTrack || 'none'} options={backgroundOptions} onChange={setBackgroundTrack} />
-          <SpeedSelect value={settings.playbackSpeed} onChange={value => setSettings(s => ({ ...s, playbackSpeed: value }))} />
+          <CompactSelect label="Melody" value={settings.melodyMode || 'none'} options={melodyOptions} onChange={setMelodyMode} isDark={isDark} />
+          <CompactSelect label="Background" value={settings.backgroundTrack || 'none'} options={backgroundOptions} onChange={setBackgroundTrack} isDark={isDark} />
+          <SpeedSelect value={settings.playbackSpeed} onChange={value => setSettings(s => ({ ...s, playbackSpeed: value }))} isDark={isDark} />
         </div>
 
-        <div className="text-center text-xs font-semibold uppercase tracking-[0.18em] text-sky-100/70">
-          {timeSignatureToString(settings.timeSignature)}
+        <div className={`flex items-center justify-center gap-3 pt-2 text-xs font-semibold uppercase tracking-[0.18em] ${isDark ? 'text-sky-100/70' : 'text-sky-700/70'}`}>
+          <span>{timeSignatureToString(settings.timeSignature)}</span>
+          {playbackState === 'paused' && pausedBeatRef.current > 0 && (
+            <button onClick={() => stopPlayback()} className={`flex items-center gap-1 rounded-full px-2 py-1 text-[0.65rem] font-bold normal-case tracking-normal transition active:scale-95 ${isDark ? 'bg-white/10 text-sky-200' : 'bg-slate-200 text-sky-700'}`} title="Reset to beginning">
+              <RotateCcw className="h-3 w-3" />
+              Reset
+            </button>
+          )}
         </div>
-        <PianoRollMini notes={notes} bars={settings.bars} timeDivision={settings.timeDivision} timeSignature={settings.timeSignature} lowestNote={noteRange.lowestNote} highestNote={noteRange.highestNote} cursorPosition={cursorPosition} showScaleDegrees={settings.showScaleDegrees} selectedKey={settings.key} />
+        <PianoRollMini notes={notes} bars={settings.bars} timeDivision={settings.timeDivision} timeSignature={settings.timeSignature} lowestNote={noteRange.lowestNote} highestNote={noteRange.highestNote} cursorPosition={cursorPosition} showScaleDegrees={settings.showScaleDegrees} selectedKey={settings.key} isDark={isDark} onNoteClick={playNoteOnClick} onSeek={playFromBeat} />
 
         <div className="flex items-center justify-center pt-2">
           <Button
             variant="ghost"
             size="icon"
             onClick={toggleTheme}
-            className="h-9 w-9 rounded-full border border-white/10 bg-white/10"
+            className={`h-9 w-9 rounded-full border ${isDark ? 'border-white/10 bg-white/10' : 'border-slate-300 bg-slate-200'}`}
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-500" />}
