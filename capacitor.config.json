@@ -1,9 +1,0 @@
-{
-  "appId": "com.earmasterpro.mobile",
-  "appName": "EarMasterPro",
-  "webDir": "dist/mobile",
-  "ios": {
-    "contentInset": "always",
-    "allowsLinkPreview": false
-  }
-}
