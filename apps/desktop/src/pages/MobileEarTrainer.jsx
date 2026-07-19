@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import * as Tone from 'tone'
-import { ArrowLeft, Bug, ChevronLeft, Info, Loader2, Minus, Pause, Play, Plus, RefreshCw, RotateCcw, Settings, Square, Moon, Sun } from 'lucide-react'
+import { ArrowLeft, Bug, ChevronLeft, Headphones, Info, Loader2, Minus, Pause, Play, Plus, RefreshCw, RotateCcw, Settings, Square, Moon, Sun } from 'lucide-react'
 import audioEngine from '@common/lib/audioEngine'
 import { GranularPlayer } from '@common/lib/granularPlayer'
 import { beatsPerBarFromTimeSignature, beatsPerDivisionFromTimeDivision, DEFAULT_TIME_SIGNATURE, importFromMidi, normalizeTimeSignature, timeSignatureToString, getInternalBpm } from '@common/lib/midiUtils'
@@ -497,6 +497,7 @@ function MobileEarTrainer() {
   const [loading, setLoading] = useState(true)
   const [audioPreparing, setAudioPreparing] = useState(false)
   const [error, setError] = useState('')
+  const [showResumeOverlay, setShowResumeOverlay] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
   const [debugEvents, setDebugEvents] = useState([])
   const [capabilities, setCapabilities] = useState({ pitches: false, solfege: false, vocals: false, drone: true, chords: false, instrumentals: false })
@@ -508,6 +509,7 @@ function MobileEarTrainer() {
   const activeMobileNotesRef = useRef(new Map())
   const playbackTokenRef = useRef(0)
   const pausedBeatRef = useRef(0)
+  const seekBeatRef = useRef(0)
   const playbackStartTimeRef = useRef(0)
   const cursorPositionRef = useRef(0)
   const currentRegionRef = useRef({ startBeat: 0, regionBeats: 0, effectiveTempo: 120 })
@@ -516,6 +518,7 @@ function MobileEarTrainer() {
   const playbackWatchdogTimerRef = useRef(null)
   const playbackRecoveryAttemptRef = useRef(0)
   const playRef = useRef(null)
+  const settingsRef = useRef(settings)
   const lastAudioReinitializedAtRef = useRef(Date.now())
   const lastPlaybackVerifiedAtRef = useRef(Date.now())
   const dronePlayingRef = useRef(false)
@@ -526,6 +529,8 @@ function MobileEarTrainer() {
     const stamp = new Date().toLocaleTimeString()
     setDebugEvents(prev => [{ stamp, message, details }, ...prev].slice(0, 30))
   }, [])
+
+  useEffect(() => { settingsRef.current = settings }, [settings])
 
   const title = useMemo(() => parseSessionTitle(sessionName), [sessionName])
   const titleParts = useMemo(() => splitSessionTitle(title), [title])
@@ -564,11 +569,16 @@ function MobileEarTrainer() {
       if (navigator.audioSession) navigator.audioSession.type = 'playback'
     } catch (_) {}
     const rawBefore = Tone.context.rawContext
-    const shouldReplace = force || Tone.context.state === 'closed' || rawBefore?.state === 'closed'
+    const toneState = Tone.context.state
+    const rawState = rawBefore?.state
+    const isClosed = toneState === 'closed' || rawState === 'closed'
+    const shouldReplace = force && isClosed
     if (shouldReplace) {
-      addDebugEvent('Fresh audio context requested', { label, force, toneState: Tone.context.state, rawState: rawBefore?.state, latencyHint, start })
+      addDebugEvent('Fresh audio context requested (context was closed)', { label, toneState, rawState })
       resetAudioStateAfterContextChange()
       Tone.setContext(new Tone.Context({ latencyHint }))
+    } else if (force && start) {
+      addDebugEvent('Audio resume requested (not closed, just resuming)', { label, toneState, rawState })
     }
     const rawContext = Tone.context.rawContext
     if (start) {
@@ -604,7 +614,7 @@ function MobileEarTrainer() {
     }
   }, [addDebugEvent])
 
-  const stopPlayback = useCallback(({ keepPreparing = false, keepRecovery = false } = {}) => {
+  const stopPlayback = useCallback(({ keepPreparing = false, keepRecovery = false, keepSeek = false } = {}) => {
     playbackTokenRef.current += 1
     clearTimerList(mobileNoteTimersRef)
     if (mobileStopTimerRef.current) {
@@ -628,10 +638,20 @@ function MobileEarTrainer() {
     instrumentalsPlayerRef.current?.stop()
     dronePlayingRef.current = false
     if (!keepPreparing) setAudioPreparing(false)
-    pausedBeatRef.current = 0
+    if (keepSeek && seekBeatRef.current > 0) {
+      pausedBeatRef.current = seekBeatRef.current
+      const s = settingsRef.current
+      const totalBeats = s.bars * beatsPerBarFromTimeSignature(s.timeSignature)
+      const fraction = totalBeats > 0 ? seekBeatRef.current / totalBeats : 0
+      cursorPositionRef.current = fraction
+      setCursorPosition(fraction)
+    } else {
+      seekBeatRef.current = 0
+      pausedBeatRef.current = 0
+      cursorPositionRef.current = 0
+      setCursorPosition(0)
+    }
     setPlaybackState('stopped')
-    cursorPositionRef.current = 0
-    setCursorPosition(0)
   }, [])
 
   useEffect(() => {
@@ -642,7 +662,7 @@ function MobileEarTrainer() {
           cursorPositionRef.current = position
           setCursorPosition(position)
         }
-        audioEngine.onPlaybackComplete = () => stopPlayback()
+        audioEngine.onPlaybackComplete = () => stopPlayback({ keepSeek: true })
         await audioEngine.initialize({ loadDefaultPiano: false })
         await audioEngine.loadInstrument('synth', INSTRUMENT_CONFIGS.synth)
         await audioEngine.loadInstrument('piano', INSTRUMENT_CONFIGS.piano)
@@ -660,38 +680,53 @@ function MobileEarTrainer() {
     refreshCatalog()
   }, [refreshCatalog])
 
-  // Foreground recovery: rebuild audio context when tab becomes visible again
+  // Foreground recovery: gently resume audio context when tab becomes visible
+  // Only rebuild if context is actually closed. iOS usually just suspends.
   useEffect(() => {
-    const refreshOnForeground = async () => {
+    const handleVisibilityChange = async () => {
       if (document.visibilityState !== 'visible') return
-      addDebugEvent('Foreground recovery started', {
-        toneState: Tone.context.state,
-        rawState: Tone.context.rawContext?.state,
-        initialized: audioEngine.isInitialized
-      })
-      setAudioPreparing(true)
-      try {
-        stopPlayback({ keepPreparing: true })
-        await ensureFreshAudioContext({ force: true, label: 'foreground', start: false })
+      const toneState = Tone.context.state
+      const rawState = Tone.context.rawContext?.state
+      addDebugEvent('Foreground visibility check', { toneState, rawState, playbackState })
+      // If context is closed, we need a user gesture to rebuild — show overlay
+      if (toneState === 'closed' || rawState === 'closed') {
+        stopPlayback()
+        setShowResumeOverlay(true)
+        addDebugEvent('Context closed — showing resume overlay')
+        return
+      }
+      // If context is just suspended, try to resume it directly
+      if (toneState === 'suspended' || rawState === 'suspended') {
+        try {
+          await Tone.context.resume()
+          if (Tone.context.rawContext?.state === 'suspended') {
+            await Tone.context.rawContext.resume()
+          }
+          addDebugEvent('Foreground resume succeeded', { toneState: Tone.context.state, rawState: Tone.context.rawContext?.state })
+          lastAudioReinitializedAtRef.current = Date.now()
+        } catch (err) {
+          addDebugEvent('Foreground resume failed, showing overlay', { message: err.message })
+          stopPlayback()
+          setShowResumeOverlay(true)
+        }
+      } else {
+        // Context is running — just update timestamp
         lastAudioReinitializedAtRef.current = Date.now()
-        addDebugEvent('Foreground recovery finished', {
-          toneState: Tone.context.state,
-          rawState: Tone.context.rawContext?.state
-        })
-      } catch (err) {
-        addDebugEvent('Foreground recovery failed', { message: err.message })
-        setError(`Audio recovery failed: ${err.message}`)
-      } finally {
-        setAudioPreparing(false)
       }
     }
-    window.addEventListener('focus', refreshOnForeground)
-    document.addEventListener('visibilitychange', refreshOnForeground)
-    return () => {
-      window.removeEventListener('focus', refreshOnForeground)
-      document.removeEventListener('visibilitychange', refreshOnForeground)
+    const handlePageHide = () => {
+      if (playbackState === 'playing') {
+        addDebugEvent('Page hide — pausing playback')
+        stopPlayback()
+      }
     }
-  }, [addDebugEvent, ensureFreshAudioContext, stopPlayback])
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pagehide', handlePageHide)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pagehide', handlePageHide)
+    }
+  }, [addDebugEvent, stopPlayback, playbackState])
 
   useEffect(() => {
     if (!selectedUrl) return
@@ -846,7 +881,18 @@ function MobileEarTrainer() {
     if (rawContext?.state !== 'running') await rawContext.resume()
     await audioEngine.initialize({ loadDefaultPiano: false })
     await audioEngine.loadInstrument('synth', INSTRUMENT_CONFIGS.synth)
-    await audioEngine.loadInstrument('piano', INSTRUMENT_CONFIGS.piano)
+    // Only reload instruments that are actually used by the current session
+    const currentSettings = settingsRef.current
+    const neededInstruments = new Set(['synth'])
+    if (currentSettings.instrument !== 'synth') neededInstruments.add(currentSettings.instrument)
+    if (currentSettings.chordsInstrument !== 'synth') neededInstruments.add(currentSettings.chordsInstrument)
+    for (const inst of neededInstruments) {
+      if (INSTRUMENT_CONFIGS[inst]) {
+        try { await audioEngine.loadInstrument(inst, INSTRUMENT_CONFIGS[inst]) } catch (e) {
+          console.warn(`Recovery: failed to load ${inst}:`, e)
+        }
+      }
+    }
     lastAudioReinitializedAtRef.current = Date.now()
     setIsInitialized(true)
     addDebugEvent('Playback recovery rebuild finished', {
@@ -887,6 +933,29 @@ function MobileEarTrainer() {
         cursorAfter: cursorPositionRef.current,
         transportState: Tone.Transport.state
       })
+      // First attempt: try a simple resume before rebuilding everything
+      if (playbackRecoveryAttemptRef.current === 0) {
+        playbackRecoveryAttemptRef.current = 1
+        addDebugEvent('Watchdog: trying simple resume first')
+        try {
+          if (Tone.context.state !== 'running') await Tone.context.resume()
+          if (rawContext?.state !== 'running') await rawContext.resume()
+          // Re-check if playback is now advancing
+          await new Promise(r => window.setTimeout(r, 200))
+          if (playbackToken !== playbackTokenRef.current) return
+          const rawNow = Tone.context.rawContext
+          const nowAdvanced = rawNow ? rawNow.currentTime > rawContext.currentTime + 0.1 : false
+          const ticksNow = Tone.Transport.ticks
+          if (Tone.context.state === 'running' && nowAdvanced && ticksNow > before.transportTicks + 2) {
+            addDebugEvent('Watchdog: simple resume succeeded')
+            playbackRecoveryAttemptRef.current = 0
+            lastPlaybackVerifiedAtRef.current = Date.now()
+            return
+          }
+        } catch (e) {
+          addDebugEvent('Watchdog: simple resume failed', { message: e.message })
+        }
+      }
       const nextAttempt = playbackRecoveryAttemptRef.current + 1
       if (nextAttempt > MAX_PLAYBACK_RECOVERY_ATTEMPTS) {
         stopPlayback()
@@ -954,7 +1023,7 @@ function MobileEarTrainer() {
       setError('')
       addDebugEvent('Play requested', { playbackState, loading, audioPreparing })
       let audioContext = await unlockAudioForMobile()
-      const resumeFromPause = playbackState === 'paused'
+      const resumeFromPause = playbackState === 'paused' || (playbackState === 'stopped' && seekBeatRef.current > 0)
       if (!resumeFromPause) stopPlayback({ keepPreparing: true, keepRecovery: playbackRecoveryAttemptRef.current })
       else {
         clearTimerList(mobileNoteTimersRef)
@@ -968,12 +1037,21 @@ function MobileEarTrainer() {
         instrumentalsPlayerRef.current?.stop()
       }
       if (!resumeFromPause && playbackRecoveryAttemptRef.current === 0 && Date.now() - lastAudioReinitializedAtRef.current > STALE_AUDIO_REBUILD_MS) {
-        addDebugEvent('Pre-play stale audio rebuild started', {
+        addDebugEvent('Pre-play context check (stale)', {
           idleMs: Date.now() - lastAudioReinitializedAtRef.current,
-          lastVerifiedMs: Date.now() - lastPlaybackVerifiedAtRef.current
+          toneState: Tone.context.state,
+          rawState: Tone.context.rawContext?.state
         })
-        await recoverAudioGraphForRetry(0)
-        audioContext = Tone.context.rawContext
+        // Just try to resume — don't rebuild unless context is actually closed
+        if (Tone.context.state === 'closed' || Tone.context.rawContext?.state === 'closed') {
+          addDebugEvent('Pre-play: context closed, rebuilding')
+          await recoverAudioGraphForRetry(0)
+          audioContext = Tone.context.rawContext
+        } else {
+          if (Tone.context.state !== 'running') await Tone.context.resume()
+          if (Tone.context.rawContext?.state !== 'running') await Tone.context.rawContext.resume()
+          lastAudioReinitializedAtRef.current = Date.now()
+        }
       }
       const playbackToken = playbackTokenRef.current
       if (!audioEngine.isInitialized) {
@@ -1091,6 +1169,17 @@ function MobileEarTrainer() {
   const playNoteOnClick = useCallback(async (note) => {
     try {
       if (Tone.context.state !== 'running') await unlockAudioForMobile()
+      // Stop any held notes from pause state
+      if (solfegeHoldTimerRef.current) {
+        window.clearInterval(solfegeHoldTimerRef.current)
+        solfegeHoldTimerRef.current = null
+      }
+      solfegePlayer.stop()
+      if (vocalsPlayerRef.current) vocalsPlayerRef.current.stop()
+      if (instrumentalsPlayerRef.current) instrumentalsPlayerRef.current.stop()
+      releaseActiveMobileNotes(activeMobileNotesRef)
+      audioEngine.synths.synth?.releaseAll?.()
+
       const instrument = settings.instrument === 'synth' || audioEngine.samplers[settings.instrument] ? settings.instrument : 'synth'
       const player = instrument === 'synth' ? audioEngine.synths.synth : audioEngine.samplers[instrument]
       if (!player) return
@@ -1112,12 +1201,29 @@ function MobileEarTrainer() {
     const endBeat = settings.regionEnd * totalBeats
     const clampedBeat = Math.min(Math.max(beat, startBeat), endBeat)
     stopPlayback()
+    seekBeatRef.current = clampedBeat
     pausedBeatRef.current = clampedBeat
     const fraction = totalBeats > 0 ? clampedBeat / totalBeats : 0
     cursorPositionRef.current = fraction
     setCursorPosition(fraction)
     setPlaybackState('paused')
   }, [loading, audioPreparing, settings, stopPlayback])
+
+  const handleResumeFromOverlay = useCallback(async () => {
+    setShowResumeOverlay(false)
+    setAudioPreparing(true)
+    try {
+      addDebugEvent('Resume overlay tapped — rebuilding audio context')
+      await recoverAudioGraphForRetry(0)
+      lastAudioReinitializedAtRef.current = Date.now()
+      addDebugEvent('Resume overlay: audio context rebuilt')
+    } catch (err) {
+      addDebugEvent('Resume overlay: rebuild failed', { message: err.message })
+      setError(`Audio recovery failed: ${err.message}`)
+    } finally {
+      setAudioPreparing(false)
+    }
+  }, [recoverAudioGraphForRetry, addDebugEvent])
 
   if (screen === 'settings') {
     return <MobileSettings settings={settings} setSettings={setSettings} onBack={() => setScreen('main')} sessionCapabilities={capabilities} isDark={isDark} />
@@ -1146,7 +1252,7 @@ function MobileEarTrainer() {
               <p className={`text-sm font-bold uppercase tracking-[0.16em] ${isDark ? 'text-sky-100' : 'text-sky-700'}`}>{titleParts.artist}</p>
               <h1 className="mt-1 whitespace-normal break-words text-2xl font-extrabold leading-tight">{titleParts.song}</h1>
               {titleParts.section && <p className={`mt-1 text-sm font-bold uppercase tracking-[0.16em] ${isDark ? 'text-sky-100/90' : 'text-sky-600/90'}`}>{titleParts.section}</p>}
-              <p className={`mt-2 text-sm font-medium ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>Key {settings.key} {keyModeLabel(settings.keyMode)} · {settings.tempo} BPM</p>
+              <p className={`mt-2 text-sm font-medium ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>Key {settings.key} {keyModeLabel(settings.keyMode)} · {settings.tempo} BPM · {timeSignatureToString(settings.timeSignature)}</p>
             </div>
           </div>
 
@@ -1167,7 +1273,7 @@ function MobileEarTrainer() {
               {isBusy ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : playbackState === 'playing' ? <Pause className="mx-auto h-5 w-5" /> : <Play className="mx-auto h-5 w-5" />}
               <span className="mt-1 block text-xs">{isBusy ? 'Loading' : playbackState === 'playing' ? 'Pause' : 'Play'}</span>
             </button>
-            <button onClick={stopPlayback} disabled={playbackState === 'stopped'} className="rounded-3xl bg-rose-400 px-3 py-4 font-bold text-slate-950 shadow-lg shadow-rose-500/25 disabled:bg-slate-700 disabled:text-slate-400 disabled:shadow-none active:scale-95">
+            <button onClick={() => stopPlayback({ keepSeek: true })} disabled={playbackState === 'stopped'} className="rounded-3xl bg-rose-400 px-3 py-4 font-bold text-slate-950 shadow-lg shadow-rose-500/25 disabled:bg-slate-700 disabled:text-slate-400 disabled:shadow-none active:scale-95">
               <Square className="mx-auto h-5 w-5" />
               <span className="mt-1 block text-xs">Stop</span>
             </button>
@@ -1175,6 +1281,18 @@ function MobileEarTrainer() {
         </header>
 
         {error && <div className="rounded-2xl border border-amber-300/30 bg-amber-400/10 p-3 text-sm text-amber-100">{error}</div>}
+        {showResumeOverlay && (
+          <div className={`fixed inset-0 z-[9999] flex items-center justify-center p-6 ${isDark ? 'bg-black/70' : 'bg-slate-900/60'}`}>
+            <div className={`rounded-3xl border p-6 text-center shadow-2xl ${isDark ? 'border-white/10 bg-slate-900' : 'border-slate-300 bg-white'}`}>
+              <Headphones className={`mx-auto mb-3 h-10 w-10 ${isDark ? 'text-sky-400' : 'text-sky-600'}`} />
+              <h2 className="text-lg font-bold">Audio Interrupted</h2>
+              <p className={`mt-2 text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>The audio context was closed while the app was in the background. Tap below to restore audio.</p>
+              <button onClick={handleResumeFromOverlay} className="mt-4 rounded-2xl bg-emerald-400 px-6 py-3 font-bold text-slate-950 shadow-lg shadow-emerald-500/25 active:scale-95">
+                Resume Audio
+              </button>
+            </div>
+          </div>
+        )}
         {isBusy && <div className="flex items-center justify-center gap-2 rounded-2xl border border-sky-300/30 bg-sky-400/10 p-3 text-sm text-sky-100"><Loader2 className="h-4 w-4 animate-spin" /> Loading playback engine...</div>}
         {showDebug && (
           <div className="max-h-56 overflow-y-auto rounded-2xl border border-fuchsia-300/30 bg-fuchsia-400/10 p-3 text-xs text-fuchsia-50">
@@ -1198,15 +1316,14 @@ function MobileEarTrainer() {
           <SpeedSelect value={settings.playbackSpeed} onChange={value => setSettings(s => ({ ...s, playbackSpeed: value }))} isDark={isDark} />
         </div>
 
-        <div className={`flex items-center justify-center gap-3 pt-2 text-xs font-semibold uppercase tracking-[0.18em] ${isDark ? 'text-sky-100/70' : 'text-sky-700/70'}`}>
-          <span>{timeSignatureToString(settings.timeSignature)}</span>
-          {playbackState === 'paused' && pausedBeatRef.current > 0 && (
-            <button onClick={() => stopPlayback()} className={`flex items-center gap-1 rounded-full px-2 py-1 text-[0.65rem] font-bold normal-case tracking-normal transition active:scale-95 ${isDark ? 'bg-white/10 text-sky-200' : 'bg-slate-200 text-sky-700'}`} title="Reset to beginning">
+        {cursorPosition > 0 && playbackState === 'stopped' && (
+          <div className="flex items-center justify-center pt-1">
+            <button onClick={() => stopPlayback()} className={`flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold transition active:scale-95 ${isDark ? 'bg-white/10 text-sky-200' : 'bg-slate-200 text-sky-700'}`} title="Reset to beginning">
               <RotateCcw className="h-3 w-3" />
-              Reset
+              Reset to beginning
             </button>
-          )}
-        </div>
+          </div>
+        )}
         <PianoRollMini notes={notes} bars={settings.bars} timeDivision={settings.timeDivision} timeSignature={settings.timeSignature} lowestNote={noteRange.lowestNote} highestNote={noteRange.highestNote} cursorPosition={cursorPosition} showScaleDegrees={settings.showScaleDegrees} selectedKey={settings.key} isDark={isDark} onNoteClick={playNoteOnClick} onSeek={playFromBeat} />
 
         <div className="flex items-center justify-center pt-2">

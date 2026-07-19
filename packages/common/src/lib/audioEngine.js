@@ -5,6 +5,13 @@ import { getInternalBpm } from './midiUtils'
 // MIDI note number → note name (middle C = C4 = 60)
 const MIDI_NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
+// Module-level cache: instrument name → Map(noteName → ArrayBuffer)
+// Survives AudioEngine.dispose() and context rebuilds so we never re-fetch
+// samples from the network after the first load.
+const sampleArrayBufferCache = {}
+const SAMPLE_BASE_URL = 'https://nbrosowsky.github.io/tonejs-instruments/samples/'
+const FETCH_CONCURRENCY = 6
+
 function midiToNoteName(midi) {
   const octave = Math.floor(midi / 12) - 1
   return MIDI_NOTE_NAMES[midi % 12] + octave
@@ -35,6 +42,7 @@ class AudioEngine {
     this.lastActiveAt = Date.now()
     this.staleContextMs = 20 * 60 * 1000
     this.keepaliveIntervalId = null
+    this.silentKeepalive = null
     
     // Look-ahead scheduling
     this.lookAheadWindow = 1.0 // seconds (1000ms)
@@ -159,6 +167,12 @@ class AudioEngine {
       // on this node only affects MIDI, never the audio reference track.
       this.midiGain = new Tone.Volume(0).toDestination()
 
+      // Silent keepalive: connect a zero-gain node to destination so iOS Safari
+      // keeps the AudioContext alive instead of suspending it when idle.
+      if (!this.silentKeepalive) {
+        this.silentKeepalive = new Tone.Gain(0).toDestination()
+      }
+
       if (options.loadDefaultPiano !== false) {
         await this.loadInstrument('piano', { attack: 0.02, release: 1, volume: -6 })
       }
@@ -269,7 +283,7 @@ class AudioEngine {
       } catch (e) {
         console.warn('[AudioEngine] Keepalive error:', e)
       }
-    }, 15000)
+    }, 5000)
   }
 
   stopKeepalive() {
@@ -349,18 +363,62 @@ class AudioEngine {
       return Promise.resolve()
     }
 
-    return new Promise((resolve) => {
-      const sampler = SampleLibrary.load({
-        instruments: instrument,
-        baseUrl: 'https://nbrosowsky.github.io/tonejs-instruments/samples/',
-        onload: () => {
-          sampler.connect(this.midiGain)
-          this.samplers[instrument] = sampler
-          this.applyInstrumentConfig(instrument, config)
-          resolve()
+    const noteMap = SampleLibrary[instrument]
+    if (!noteMap) {
+      console.warn(`[AudioEngine] Unknown instrument: ${instrument}`)
+      return Promise.resolve()
+    }
+
+    // Ensure all samples are fetched and cached as ArrayBuffers
+    if (!sampleArrayBufferCache[instrument]) {
+      sampleArrayBufferCache[instrument] = new Map()
+    }
+    const cache = sampleArrayBufferCache[instrument]
+    const entries = Object.entries(noteMap)
+    const uncached = entries.filter(([note]) => !cache.has(note))
+
+    if (uncached.length > 0) {
+      console.log(`[AudioEngine] Fetching ${uncached.length} samples for ${instrument}...`)
+      // Fetch with limited concurrency to avoid ERR_INSUFFICIENT_RESOURCES
+      for (let i = 0; i < uncached.length; i += FETCH_CONCURRENCY) {
+        const batch = uncached.slice(i, i + FETCH_CONCURRENCY)
+        await Promise.all(batch.map(async ([note, filename]) => {
+          if (cache.has(note)) return
+          const url = SAMPLE_BASE_URL + instrument + '/' + filename
+          try {
+            const response = await fetch(url)
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            const buffer = await response.arrayBuffer()
+            cache.set(note, buffer)
+          } catch (e) {
+            console.warn(`[AudioEngine] Failed to fetch ${instrument}/${note}:`, e.message)
+          }
+        }))
+      }
+    }
+
+    // Decode cached ArrayBuffers with the current AudioContext
+    // slice(0) creates a copy because decodeAudioData detaches the buffer
+    const decodedUrls = {}
+    for (const [note] of entries) {
+      const arrayBuffer = cache.get(note)
+      if (arrayBuffer) {
+        try {
+          const decoded = await Tone.context.rawContext.decodeAudioData(arrayBuffer.slice(0))
+          decodedUrls[note] = decoded
+        } catch (e) {
+          console.warn(`[AudioEngine] Failed to decode ${instrument}/${note}:`, e.message)
         }
-      })
-    })
+      }
+    }
+
+    // Create sampler from pre-decoded AudioBuffers — no network fetching needed
+    const sampler = new Tone.Sampler({ urls: decodedUrls })
+    sampler.connect(this.midiGain)
+    this.samplers[instrument] = sampler
+    this.applyInstrumentConfig(instrument, config)
+    console.log(`[AudioEngine] ${instrument} sampler created from ${Object.keys(decodedUrls).length} buffers`)
+    return Promise.resolve()
   }
 
   applyInstrumentConfig(instrument, config = {}) {
@@ -823,6 +881,10 @@ class AudioEngine {
     if (this.midiGain) {
       try { this.midiGain.dispose() } catch (_) {}
       this.midiGain = null
+    }
+    if (this.silentKeepalive) {
+      try { this.silentKeepalive.dispose() } catch (_) {}
+      this.silentKeepalive = null
     }
     try { Tone.Transport.stop() } catch (_) {}
     this.stopKeepalive()
