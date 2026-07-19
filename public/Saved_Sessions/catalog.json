@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T11:22:18.602Z",
+  "generatedAt": "2026-07-19T11:26:12.351Z",
   "sessions": [
     {
       "file": "AlexWarren_Ordinary_Chorus.eartrainer.json",
@@ -14,7 +14,7 @@
         "lowestNote": 39,
         "highestNote": 75
       },
-      "updatedAt": "2026-07-19T11:22:18.571Z"
+      "updatedAt": "2026-07-19T11:26:12.322Z"
     },
     {
       "file": "BreakingBenjamin_DiaryOfJane_Chorus.eartrainer.json",
@@ -29,7 +29,7 @@
         "lowestNote": 50,
         "highestNote": 74
       },
-      "updatedAt": "2026-07-19T11:22:18.574Z"
+      "updatedAt": "2026-07-19T11:26:12.325Z"
     },
     {
       "file": "Carl_Production.eartrainer.json",
@@ -44,7 +44,7 @@
         "lowestNote": 66,
         "highestNote": 85
       },
-      "updatedAt": "2026-07-19T11:22:18.582Z"
+      "updatedAt": "2026-07-19T11:26:12.330Z"
     },
     {
       "file": "TwentyOnePilots_TheLine_Intro.eartrainer.json",
@@ -59,7 +59,7 @@
         "lowestNote": 49,
         "highestNote": 73
       },
-      "updatedAt": "2026-07-19T11:22:18.597Z"
+      "updatedAt": "2026-07-19T11:26:12.346Z"
     }
   ]
 }
