@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Tone from 'tone'
-import { BookOpen, Eye, EyeOff, Headphones, Loader2, Lock, Moon, Pause, Play, Repeat, Settings, Square, Sun, Minus, Plus } from 'lucide-react'
+import { BookOpen, Eye, EyeOff, FileText, Hash, Headphones, Loader2, Lock, Moon, Pause, Play, Repeat, Settings, Square, Sun, Type, Minus, Plus } from 'lucide-react'
 import audioEngine, { INSTRUMENT_CONFIGS } from '@common/lib/audioEngine'
 import { GranularPlayer } from '@common/lib/granularPlayer'
 import {
@@ -16,6 +16,7 @@ import { loadCatalog, loadSectionSession, loadSectionAudio } from '@/lib/catalog
 import PianoRoll from '@/components/PianoRoll'
 import CatalogSheet from '@/components/CatalogSheet'
 import SettingsSheet from '@/components/SettingsSheet'
+import TranscriptionSheet from '@/components/TranscriptionSheet'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -253,6 +254,8 @@ function EarTrainer() {
   const [regionStart, setRegionStart] = useState(0)
   const [regionEnd, setRegionEnd] = useState(1)
   const [showAnswers, setShowAnswers] = useState(true)
+  // 'theory' = scale degrees / Roman numerals; 'names' = note / chord names
+  const [notation, setNotation] = useState('theory')
 
   // Playback state
   const [playbackState, setPlaybackState] = useState('stopped')
@@ -263,6 +266,7 @@ function EarTrainer() {
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [showResumeOverlay, setShowResumeOverlay] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [transcriptionOpen, setTranscriptionOpen] = useState(false)
   const [loadingInstruments, setLoadingInstruments] = useState(() => new Set())
 
   // Sound settings (persisted across sessions)
@@ -932,6 +936,16 @@ function EarTrainer() {
   // Header key display: "F# Minor → A Major" for sections with a key change
   const keyDisplay = timeline.keyEvents.map(k => `${k.key} ${k.keyMode}`).join(' → ')
 
+  // Song-level transcription doc (bundled Google-Docs HTML), if the catalog
+  // has one for the selected song
+  const transcriptionUrl = useMemo(() => {
+    if (!catalog || !selected) return null
+    const song = catalog.artists
+      ?.find(a => a.name === selected.artist)?.songs
+      ?.find(s => s.title === selected.title)
+    return song?.transcription || null
+  }, [catalog, selected])
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   const bg = isDark
@@ -946,30 +960,34 @@ function EarTrainer() {
 
         {/* ── Header ── */}
         <header className={`rounded-3xl border p-4 shadow-xl backdrop-blur-xl ${card}`}>
-          <div className="flex items-start justify-between gap-3">
+          {/* Mobile: buttons on their own row, then artist/title/meta each on a
+              full-width line. Desktop (sm+): catalog | centered text | actions. */}
+          <div className="flex flex-wrap items-start gap-x-3 gap-y-2 sm:flex-nowrap">
             <button
               onClick={() => setCatalogOpen(true)}
-              className={`${btnBase} h-11 shrink-0 border px-4 text-sm ${isDark ? 'border-white/10 bg-sky-400/15 text-sky-200 hover:bg-sky-400/25' : 'border-slate-300 bg-sky-100 text-sky-800 hover:bg-sky-200'}`}
+              className={`${btnBase} order-1 h-11 shrink-0 border px-4 text-sm ${isDark ? 'border-white/10 bg-sky-400/15 text-sky-200 hover:bg-sky-400/25' : 'border-slate-300 bg-sky-100 text-sky-800 hover:bg-sky-200'}`}
             >
               <BookOpen className="h-4 w-4" />
               <span className="hidden sm:inline">Catalog</span>
             </button>
-            <div className="min-w-0 flex-1 text-center">
-              <p className={`truncate text-[11px] font-bold uppercase tracking-[0.18em] ${isDark ? 'text-sky-300/90' : 'text-sky-700/90'}`}>
-                {selected?.artist || 'Ear Master Pro'}
-              </p>
-              <h1 className="truncate text-xl font-extrabold leading-tight sm:text-2xl">
-                {selected ? `${selected.title} — ${selected.entry.label}` : 'Ear Master Pro'}
-              </h1>
-              <p className={`mt-0.5 text-xs font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                Key {keyDisplay} · {settings.tempo} BPM · {timeSignatureToString(settings.timeSignature)} · {settings.bars} bars
-              </p>
-            </div>
-            <div className="flex shrink-0 gap-1.5">
+            <div className="order-2 ml-auto flex shrink-0 gap-1.5 sm:order-3 sm:ml-0">
               <button onClick={() => setShowAnswers(v => !v)} title={showAnswers ? 'Hide answers' : 'Show answers'}
                 className={`rounded-full p-2.5 transition active:scale-95 ${isDark ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-200 hover:bg-slate-300'}`}>
                 {showAnswers ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
               </button>
+              <button onClick={() => setNotation(v => v === 'theory' ? 'names' : 'theory')}
+                title={notation === 'theory' ? 'Notation: scale degrees / Roman numerals (tap for note & chord names)' : 'Notation: note & chord names (tap for scale degrees / Roman numerals)'}
+                className={`rounded-full p-2.5 transition active:scale-95 ${notation === 'names'
+                  ? 'bg-sky-400/90 text-slate-950'
+                  : isDark ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-200 hover:bg-slate-300'}`}>
+                {notation === 'theory' ? <Hash className="h-4 w-4" /> : <Type className="h-4 w-4" />}
+              </button>
+              {transcriptionUrl && (
+                <button onClick={() => setTranscriptionOpen(true)} title="Transcription"
+                  className={`rounded-full p-2.5 transition active:scale-95 ${isDark ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-200 hover:bg-slate-300'}`}>
+                  <FileText className="h-4 w-4" />
+                </button>
+              )}
               <button onClick={() => setSettingsOpen(true)} title="Settings"
                 className={`rounded-full p-2.5 transition active:scale-95 ${isDark ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-200 hover:bg-slate-300'}`}>
                 <Settings className="h-4 w-4" />
@@ -978,6 +996,17 @@ function EarTrainer() {
                 className={`rounded-full p-2.5 transition active:scale-95 ${isDark ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-200 hover:bg-slate-300'}`}>
                 {isDark ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-indigo-500" />}
               </button>
+            </div>
+            <div className="order-3 w-full min-w-0 text-center sm:order-2 sm:w-auto sm:flex-1">
+              <p className={`truncate text-sm font-extrabold uppercase tracking-[0.18em] sm:text-base ${isDark ? 'text-sky-300/90' : 'text-sky-700/90'}`}>
+                {selected?.artist || 'Ear Master Pro'}
+              </p>
+              <h1 className="truncate text-xl font-extrabold leading-tight sm:text-2xl">
+                {selected ? selected.title : 'Ear Master Pro'}
+              </h1>
+              <p className={`mt-0.5 text-xs font-medium sm:text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                {selected ? `${selected.entry.label} · ` : ''}{keyDisplay} · {settings.tempo} BPM · {timeSignatureToString(settings.timeSignature)} · {settings.bars} bars
+              </p>
             </div>
           </div>
 
@@ -1083,6 +1112,7 @@ function EarTrainer() {
             zoom={zoom}
             isDark={isDark}
             showAnswers={showAnswers}
+            notation={notation}
             onNoteClick={playNoteOnClick}
             onSeek={playFromBeat}
           />
@@ -1123,6 +1153,16 @@ function EarTrainer() {
         settings={userSettings}
         onChange={patchSettings}
         loadingInstruments={loadingInstruments}
+        isDark={isDark}
+      />
+
+      {/* ── Transcription sheet ── */}
+      <TranscriptionSheet
+        open={transcriptionOpen && !!transcriptionUrl}
+        onClose={() => setTranscriptionOpen(false)}
+        url={transcriptionUrl || ''}
+        title={selected ? `${selected.title} — ${selected.entry.label}` : 'Transcription'}
+        sectionAnchor={selected?.entry ? `${selected.entry.name}-section` : null}
         isDark={isDark}
       />
 

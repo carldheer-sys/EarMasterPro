@@ -3,9 +3,10 @@
  * build-catalog.mjs — Bake the Music_Catalog transcription library into the app.
  *
  * Scans <Music_Catalog>/<Artist - Title>/<section>/ folders, validates assets
- * (melody.mid, chords.mid, audio.wav, session.eartrainer.json), copies them to
- * public/catalog/, and writes public/catalog/catalog.json — a browse-ready
- * manifest organized artist -> song -> section.
+ * (melody.mid, chords.mid, audio.mp3|audio.wav, session.eartrainer.json),
+ * copies them to public/catalog/, and writes public/catalog/catalog.json — a
+ * browse-ready manifest organized artist -> song -> section. Song-level
+ * *transcription*.html files are copied as `song.transcription` assets.
  *
  * Folders ending in " - manual" (and the scripts&skills dir) are excluded.
  *
@@ -54,6 +55,12 @@ async function validateMidi(filePath) {
 function validateWavHeader(buf) {
   return buf.length > 44 && buf.toString('ascii', 0, 4) === 'RIFF' &&
     buf.toString('ascii', 8, 12) === 'WAVE'
+}
+
+function validateMp3Header(buf) {
+  // ID3 tag, or an MPEG audio frame sync (0xFFEx)
+  return buf.length > 3 && (buf.toString('ascii', 0, 3) === 'ID3' ||
+    (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0))
 }
 
 const warnings = []
@@ -114,14 +121,18 @@ for (const songFolder of songDirs) {
     const dir = path.join(songDir, sectionFolder)
     const meta = songInfo?.sections?.[sectionFolder] || {}
 
+    // Prefer audio.mp3 (smaller); fall back to audio.wav for older exports
+    const audioName = (await fileExists(path.join(dir, 'audio.mp3'))) ? 'audio.mp3'
+      : (await fileExists(path.join(dir, 'audio.wav'))) ? 'audio.wav' : null
+
     const files = {
       session: path.join(dir, 'session.eartrainer.json'),
       melody: path.join(dir, 'melody.mid'),
       chords: path.join(dir, 'chords.mid'),
-      audio: path.join(dir, 'audio.wav'),
+      audio: audioName ? path.join(dir, audioName) : null,
     }
     const present = {}
-    for (const [k, p] of Object.entries(files)) present[k] = await fileExists(p)
+    for (const [k, p] of Object.entries(files)) present[k] = p ? await fileExists(p) : false
 
     // Session JSON is the section's source of truth
     let session = null
@@ -159,9 +170,10 @@ for (const songFolder of songDirs) {
     }
     if (present.audio) {
       const head = await readFile(files.audio)
-      if (!validateWavHeader(head)) {
+      const ok = audioName === 'audio.mp3' ? validateMp3Header(head) : validateWavHeader(head)
+      if (!ok) {
         present.audio = false
-        warnings.push(`${songFolder}/${sectionFolder}: audio.wav is not a valid WAV file`)
+        warnings.push(`${songFolder}/${sectionFolder}: ${audioName} header is invalid`)
       }
     }
     if (melodyNotes === 0) present.melody = false
@@ -169,7 +181,7 @@ for (const songFolder of songDirs) {
 
     if (!present.melody) warnings.push(`${songFolder}/${sectionFolder}: no usable melody MIDI`)
     if (!present.chords) warnings.push(`${songFolder}/${sectionFolder}: no usable chords MIDI`)
-    if (!present.audio) warnings.push(`${songFolder}/${sectionFolder}: no usable audio.wav`)
+    if (!present.audio) warnings.push(`${songFolder}/${sectionFolder}: no usable audio (audio.mp3/audio.wav)`)
     if (!session.chordAnnotations?.length) {
       warnings.push(`${songFolder}/${sectionFolder}: session has no chordAnnotations (run --annotate-only)`)
     }
@@ -180,7 +192,7 @@ for (const songFolder of songDirs) {
     const urlBase = `/catalog/${encodeURIComponent(songFolder)}/${encodeURIComponent(sectionFolder)}`
     const assets = {}
     const toCopy = [['session', 'session.eartrainer.json'], ['melody', 'melody.mid'],
-                    ['chords', 'chords.mid'], ['audio', 'audio.wav']]
+                    ['chords', 'chords.mid'], ['audio', audioName]]
     for (const [key, fname] of toCopy) {
       if (!present[key]) continue
       await copyFile(files[key], path.join(targetDir, fname))
@@ -212,12 +224,26 @@ for (const songFolder of songDirs) {
 
   if (!sections.length) continue
 
+  // Song-level transcription doc (generated HTML table), if present
+  let transcription = null
+  const htmlFiles = (await readdir(songDir, { withFileTypes: true }))
+    .filter(e => e.isFile() && e.name.toLowerCase().endsWith('.html'))
+    .map(e => e.name)
+  if (htmlFiles.length) {
+    const fname = htmlFiles[0]
+    const targetDir = path.join(outDir, songFolder)
+    await mkdir(targetDir, { recursive: true })
+    await copyFile(path.join(songDir, fname), path.join(targetDir, fname))
+    transcription = `/catalog/${encodeURIComponent(songFolder)}/${encodeURIComponent(fname)}`
+    if (htmlFiles.length > 1) warnings.push(`${songFolder}: multiple .html files; bundled '${fname}'`)
+  }
+
   let artistEntry = catalog.artists.find(a => a.name === artist)
   if (!artistEntry) {
     artistEntry = { name: artist, songs: [] }
     catalog.artists.push(artistEntry)
   }
-  artistEntry.songs.push({ title, folder: songFolder, sections })
+  artistEntry.songs.push({ title, folder: songFolder, transcription, sections })
 }
 
 catalog.artists.sort((a, b) => a.name.localeCompare(b.name))

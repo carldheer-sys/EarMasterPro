@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-20T13:12:36.429Z",
+  "generatedAt": "2026-09-20T20:47:12.065Z",
   "artists": [
     {
       "name": "Alex Warren",
@@ -7,6 +7,7 @@
         {
           "title": "Ordinary",
           "folder": "Alex Warren - Ordinary",
+          "transcription": "/catalog/Alex%20Warren%20-%20Ordinary/ordinary-verse-chorus-google-docs.html",
           "sections": [
             {
               "id": "Alex Warren - Ordinary/verse",
@@ -24,7 +25,7 @@
                 "session": "/catalog/Alex%20Warren%20-%20Ordinary/verse/session.eartrainer.json",
                 "melody": "/catalog/Alex%20Warren%20-%20Ordinary/verse/melody.mid",
                 "chords": "/catalog/Alex%20Warren%20-%20Ordinary/verse/chords.mid",
-                "audio": "/catalog/Alex%20Warren%20-%20Ordinary/verse/audio.wav"
+                "audio": "/catalog/Alex%20Warren%20-%20Ordinary/verse/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
@@ -49,7 +50,7 @@
                 "session": "/catalog/Alex%20Warren%20-%20Ordinary/chorus/session.eartrainer.json",
                 "melody": "/catalog/Alex%20Warren%20-%20Ordinary/chorus/melody.mid",
                 "chords": "/catalog/Alex%20Warren%20-%20Ordinary/chorus/chords.mid",
-                "audio": "/catalog/Alex%20Warren%20-%20Ordinary/chorus/audio.wav"
+                "audio": "/catalog/Alex%20Warren%20-%20Ordinary/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
@@ -68,6 +69,7 @@
         {
           "title": "Diary of Jane",
           "folder": "Breaking Benjamin - Diary of Jane",
+          "transcription": "/catalog/Breaking%20Benjamin%20-%20Diary%20of%20Jane/the-diary-of-jane-chorus-google-docs.html",
           "sections": [
             {
               "id": "Breaking Benjamin - Diary of Jane/chorus",
@@ -85,7 +87,7 @@
                 "session": "/catalog/Breaking%20Benjamin%20-%20Diary%20of%20Jane/chorus/session.eartrainer.json",
                 "melody": "/catalog/Breaking%20Benjamin%20-%20Diary%20of%20Jane/chorus/melody.mid",
                 "chords": "/catalog/Breaking%20Benjamin%20-%20Diary%20of%20Jane/chorus/chords.mid",
-                "audio": "/catalog/Breaking%20Benjamin%20-%20Diary%20of%20Jane/chorus/audio.wav"
+                "audio": "/catalog/Breaking%20Benjamin%20-%20Diary%20of%20Jane/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
@@ -104,6 +106,7 @@
         {
           "title": "Die with a Smile",
           "folder": "Bruno Mars - Die with a Smile",
+          "transcription": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/die-with-a-smile-verse-chorus-google-docs.html",
           "sections": [
             {
               "id": "Bruno Mars - Die with a Smile/verse",
@@ -114,14 +117,14 @@
               "tempo": 53,
               "internalBpm": 79.5,
               "timeSignature": "6/8",
-              "bars": 16,
-              "melodyNotes": 90,
+              "bars": 17,
+              "melodyNotes": 98,
               "chordNotes": 34,
               "assets": {
                 "session": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/verse/session.eartrainer.json",
                 "melody": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/verse/melody.mid",
                 "chords": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/verse/chords.mid",
-                "audio": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/verse/audio.wav"
+                "audio": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/verse/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
@@ -139,14 +142,14 @@
               "tempo": 53,
               "internalBpm": 79,
               "timeSignature": "6/8",
-              "bars": 19,
-              "melodyNotes": 73,
-              "chordNotes": 75,
+              "bars": 15,
+              "melodyNotes": 62,
+              "chordNotes": 67,
               "assets": {
                 "session": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/chorus/session.eartrainer.json",
                 "melody": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/chorus/melody.mid",
                 "chords": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/chorus/chords.mid",
-                "audio": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/chorus/audio.wav"
+                "audio": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
@@ -165,6 +168,7 @@
         {
           "title": "The Future is a Foreign Land",
           "folder": "Ghost - The Future is a Foreign Land",
+          "transcription": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/the-future-is-a-foreign-land-verse-chorus-google-docs.html",
           "sections": [
             {
               "id": "Ghost - The Future is a Foreign Land/verse",
@@ -182,7 +186,7 @@
                 "session": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/verse/session.eartrainer.json",
                 "melody": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/verse/melody.mid",
                 "chords": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/verse/chords.mid",
-                "audio": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/verse/audio.wav"
+                "audio": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/verse/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
@@ -200,14 +204,14 @@
               "tempo": 124,
               "internalBpm": 124,
               "timeSignature": "4/4",
-              "bars": 18,
-              "melodyNotes": 56,
+              "bars": 19,
+              "melodyNotes": 59,
               "chordNotes": 60,
               "assets": {
                 "session": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/session.eartrainer.json",
                 "melody": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/melody.mid",
                 "chords": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/chords.mid",
-                "audio": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/audio.wav"
+                "audio": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
@@ -226,6 +230,7 @@
         {
           "title": "The Line",
           "folder": "Twenty One Pilots - The Line",
+          "transcription": "/catalog/Twenty%20One%20Pilots%20-%20The%20Line/the-line-verse-chorus-google-docs.html",
           "sections": [
             {
               "id": "Twenty One Pilots - The Line/verse",
@@ -243,7 +248,7 @@
                 "session": "/catalog/Twenty%20One%20Pilots%20-%20The%20Line/verse/session.eartrainer.json",
                 "melody": "/catalog/Twenty%20One%20Pilots%20-%20The%20Line/verse/melody.mid",
                 "chords": "/catalog/Twenty%20One%20Pilots%20-%20The%20Line/verse/chords.mid",
-                "audio": "/catalog/Twenty%20One%20Pilots%20-%20The%20Line/verse/audio.wav"
+                "audio": "/catalog/Twenty%20One%20Pilots%20-%20The%20Line/verse/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
@@ -268,7 +273,7 @@
                 "session": "/catalog/Twenty%20One%20Pilots%20-%20The%20Line/chorus/session.eartrainer.json",
                 "melody": "/catalog/Twenty%20One%20Pilots%20-%20The%20Line/chorus/melody.mid",
                 "chords": "/catalog/Twenty%20One%20Pilots%20-%20The%20Line/chorus/chords.mid",
-                "audio": "/catalog/Twenty%20One%20Pilots%20-%20The%20Line/chorus/audio.wav"
+                "audio": "/catalog/Twenty%20One%20Pilots%20-%20The%20Line/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,

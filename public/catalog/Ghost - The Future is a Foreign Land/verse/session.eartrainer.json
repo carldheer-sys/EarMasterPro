@@ -540,7 +540,7 @@
   "chordsInstrument": "piano",
   "files": {
     "midi": "melody.mid",
-    "vocals": "audio.wav",
+    "vocals": "audio.mp3",
     "drone": "",
     "chordsMidi": "chords.mid",
     "instrumentals": ""

@@ -111,26 +111,28 @@ export function useScaleDegreeAnalysis(notes, tonic, mode = 'Major', keyEvents =
 }
 
 // Helper: Convert note name to MIDI number
-// Format: "C4" = 60, "A4" = 69, etc.
+// Format: "C4" = 60, "A4" = 69, etc. Handles sharps, flats, and double
+// accidentals (E# = F, Bb, G##, …) — same semantics as PianoRoll's parser.
 function noteNameToMidi(noteName) {
   // Defensive check: ensure noteName is a string
   if (typeof noteName !== 'string') {
     return 60 // Default to C4
   }
-  
+
   // Extract note name and octave
-  const match = noteName.match(/^([A-G]#?)(-?\d+)$/)
+  const match = noteName.match(/^([A-Ga-g])(#{0,2}|b{0,2})(-?\d+)$/)
   if (!match) {
     return 60 // Default to C4
   }
-  
-  const [, pitchName, octaveStr] = match
-  const octave = parseInt(octaveStr, 10)
-  
-  // Find pitch class
-  const pitchClass = NOTE_NAMES.indexOf(pitchName)
+
+  const letter = match[1].toUpperCase()
+  const octave = parseInt(match[3], 10)
+
+  // Base pitch class of the letter, then apply accidentals
+  let pitchClass = NOTE_NAMES.indexOf(letter)
   if (pitchClass < 0) return 60
-  
+  for (const ch of match[2]) pitchClass += ch === '#' ? 1 : -1
+
   // Calculate MIDI note: (octave + 1) * 12 + pitchClass
   return (octave + 1) * 12 + pitchClass
 }

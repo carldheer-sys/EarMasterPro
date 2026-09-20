@@ -95,7 +95,7 @@ function renderGrid(ctx, { width, height, beatWidth, barStarts, totalBeats, lowe
   ctx.stroke()
 }
 
-function renderNotes(ctx, { notes, beatWidth, cellH, lowestNote, highestNote, viewportStartBeat, viewportEndBeat, dpr, showAnswers, isDark }) {
+function renderNotes(ctx, { notes, beatWidth, cellH, lowestNote, highestNote, viewportStartBeat, viewportEndBeat, dpr, showAnswers, notation, isDark }) {
   const buffer = 2
   const visible = notes.filter(n => n.start + n.duration >= viewportStartBeat - buffer && n.start <= viewportEndBeat + buffer)
   const cornerRadius = Math.min(3, cellH / 4)
@@ -139,10 +139,14 @@ function renderNotes(ctx, { notes, beatWidth, cellH, lowestNote, highestNote, vi
       let label = null
       let labelNonDiatonic = false
       if (note.degree_info?.scale_degree) {
-        label = note.degree_info.scale_degree
+        // theory: scale degree ('b7'); names: pitch class without octave ('F')
+        label = notation === 'names' ? note.note.replace(/-?\d+$/, '') : note.degree_info.scale_degree
         labelNonDiatonic = note.degree_info.is_diatonic === false
       } else if (note.chord_info && note.is_top_note) {
-        label = note.chord_info.roman_numeral
+        // theory: Roman numeral ('bVII11'); names: spelled chord ('Bb11')
+        label = notation === 'names'
+          ? (note.chord_info.chord_label || note.chord_info.roman_numeral)
+          : note.chord_info.roman_numeral
         labelNonDiatonic = !note.chord_info.is_diatonic
       }
       if (label) {
@@ -177,6 +181,7 @@ function renderRegionOverlay(ctx, { width, height, regionStartPx, regionEndPx })
  *
  * mode 'melody'  → scale-degree labels (degree_info from useScaleDegreeAnalysis)
  * mode 'harmony' → Roman numeral labels from session `annotations`
+ * notation 'names' swaps those for pitch names / spelled chord labels.
  * Non-diatonic notes are tinted red in both modes.
  */
 function PianoRoll({
@@ -202,6 +207,7 @@ function PianoRoll({
   zoom = 1,
   isDark = true,
   showAnswers = true,
+  notation = 'theory',  // 'theory' = degrees/roman numerals, 'names' = notes/chords
   onNoteClick,
   onSeek,
 }) {
@@ -362,9 +368,9 @@ function PianoRoll({
     const vpEnd = (scrollLeft + viewportWidth) / beatWidth
 
     renderGrid(ctx, { width: gridWidth, height: gridHeight, beatWidth, barStarts: effectiveBarStarts, totalBeats, lowestNote, highestNote, dpr, beatsPerDivision, isDark })
-    renderNotes(ctx, { notes: displayNotes, beatWidth, cellH, lowestNote, highestNote, viewportStartBeat: vpStart, viewportEndBeat: vpEnd, dpr, showAnswers, isDark })
+    renderNotes(ctx, { notes: displayNotes, beatWidth, cellH, lowestNote, highestNote, viewportStartBeat: vpStart, viewportEndBeat: vpEnd, dpr, showAnswers, notation, isDark })
     renderRegionOverlay(ctx, { width: gridWidth, height: gridHeight, regionStartPx: regionStart * gridWidth, regionEndPx: regionEnd * gridWidth })
-  }, [displayNotes, beatWidth, gridWidth, gridHeight, cellH, effectiveBarStarts, totalBeats, beatsPerDivision, lowestNote, highestNote, scrollLeft, viewportWidth, regionStart, regionEnd, showAnswers, isDark])
+  }, [displayNotes, beatWidth, gridWidth, gridHeight, cellH, effectiveBarStarts, totalBeats, beatsPerDivision, lowestNote, highestNote, scrollLeft, viewportWidth, regionStart, regionEnd, showAnswers, notation, isDark])
 
   // ── Region handle dragging (mouse + touch via pointer events) ──
   const regionDragCleanup = useRef(null)
