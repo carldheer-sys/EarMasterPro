@@ -19,7 +19,7 @@ const SHARP_TO_FLAT_KEYS = {
   'A#': 'Bb'
 }
 
-function normalizeKeyName(key) {
+export function normalizeKeyName(key) {
   return FLAT_TO_SHARP_KEYS[key] || key || 'C'
 }
 
@@ -102,6 +102,74 @@ export function getMainBeatsPerBar(timeSignature) {
   } else {
     return numerator
   }
+}
+
+// ─── Timeline event helpers (session quarter-beat space) ──────────────────
+
+/**
+ * Detect the smallest time division needed to place every note start and end
+ * exactly on the grid. Returns a '1/x' string compatible with
+ * beatsPerDivisionFromTimeDivision ('1/4' | '1/8' | '1/16' | '1/32').
+ */
+export function detectTimeDivision(notes) {
+  if (!notes || notes.length === 0) return '1/4'
+  const onGrid = (v, unit) => Math.abs(v / unit - Math.round(v / unit)) < 1e-3
+  for (const denom of [4, 8, 16, 32]) {
+    const unit = 4 / denom // quarter-beats per 1/denom note
+    if (notes.every(n => onGrid(n.start, unit) && onGrid(n.start + n.duration, unit))) {
+      return `1/${denom}`
+    }
+  }
+  return '1/32'
+}
+
+/**
+ * Active key event at a session beat. `keyEvents` is
+ * [{beat, key, keyMode}] sorted ascending; returns the last event ≤ beat.
+ */
+export function keyAtBeat(keyEvents, beat, fallbackKey = 'C', fallbackMode = 'Major') {
+  if (!keyEvents || keyEvents.length === 0) return { key: fallbackKey, keyMode: fallbackMode }
+  let active = keyEvents[0]
+  for (const e of keyEvents) {
+    if (e.beat <= beat + 1e-6) active = e
+    else break
+  }
+  return { key: active.key, keyMode: active.keyMode || 'Major' }
+}
+
+/**
+ * Build the bar layout from session meterEvents
+ * ([{beat, numerator, denominator}] sorted, first at 0). A meter event
+ * truncates the bar it lands in. Bars are generated until `contentEndBeat`
+ * is covered; totalBeats is the end of the last bar (≥ contentEndBeat).
+ * Returns { barStarts: [{start, numerator, denominator}], totalBeats }.
+ */
+export function buildMeterTimeline(meterEvents, contentEndBeat) {
+  const events = (meterEvents && meterEvents.length
+    ? meterEvents
+    : [{ beat: 0, numerator: 4, denominator: 4 }]
+  ).slice().sort((a, b) => a.beat - b.beat)
+  if (events[0].beat > 0) events.unshift({ ...events[0], beat: 0 })
+
+  const barStarts = []
+  let segIdx = 0
+  let pos = 0
+  const target = Math.max(0, contentEndBeat)
+  while (pos < target - 1e-6 && barStarts.length < 1024) {
+    while (segIdx + 1 < events.length && events[segIdx + 1].beat <= pos + 1e-6) segIdx++
+    const m = events[segIdx]
+    const barBeats = Math.max(0.25, m.numerator * (4 / m.denominator))
+    const nextEventBeat = events[segIdx + 1]?.beat ?? Infinity
+    const end = Math.min(pos + barBeats, nextEventBeat)
+    barStarts.push({ start: pos, numerator: m.numerator, denominator: m.denominator })
+    pos = end
+  }
+  if (barStarts.length === 0) {
+    const m = events[0]
+    barStarts.push({ start: 0, numerator: m.numerator, denominator: m.denominator })
+    pos = Math.max(0.25, m.numerator * (4 / m.denominator))
+  }
+  return { barStarts, totalBeats: pos }
 }
 
 export function beatsPerDivisionFromTimeDivision(timeDivision, timeSignature = DEFAULT_TIME_SIGNATURE) {

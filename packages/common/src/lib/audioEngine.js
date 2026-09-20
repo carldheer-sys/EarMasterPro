@@ -1,6 +1,6 @@
 import * as Tone from 'tone'
 import SampleLibrary from './Tonejs-Instruments'
-import { getInternalBpm } from './midiUtils'
+import { getInternalBpm, normalizeKeyName } from './midiUtils'
 
 // MIDI note number → note name (middle C = C4 = 60)
 const MIDI_NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -12,6 +12,45 @@ const sampleArrayBufferCache = {}
 const SAMPLE_BASE_URL = 'https://nbrosowsky.github.io/tonejs-instruments/samples/'
 const FETCH_CONCURRENCY = 6
 
+// Generated (non-sampled) instrument definitions, created as Tone.PolySynths.
+// `filter` (Hz) adds a lowpass on the synth's output for a softer pad tone.
+const SYNTH_TYPES = {
+  synth: {
+    oscillator: { type: 'triangle' },
+    envelope: { attack: 0.005, decay: 0.1, sustain: 0.4, release: 1 },
+    volume: -6,
+  },
+  pad: {
+    oscillator: { type: 'fatsawtooth', count: 3, spread: 22 },
+    envelope: { attack: 0.3, decay: 0.5, sustain: 0.7, release: 2.2 },
+    volume: -10,
+    filter: 2200,
+  },
+}
+
+// Per-instrument defaults for the sample-based sounds (from the previous app
+// version). Volume compensates for each sample set's loudness.
+export const INSTRUMENT_CONFIGS = {
+  synth: { volume: -8 },
+  pad: { volume: -8 },
+  piano: { attack: 0.02, release: 1, volume: -6 },
+  violin: { attack: 0.1, release: 1.2, volume: -4 },
+  flute: { attack: 0.08, release: 0.8, volume: -2 },
+  clarinet: { attack: 0.05, release: 0.5, volume: -4 },
+  organ: { attack: 0.02, release: 0.8, volume: -6 },
+  'guitar-acoustic': { attack: 0.002, release: 0.8, volume: -4 },
+  harp: { attack: 0.001, release: 1.2, volume: -4 },
+  cello: { attack: 0.05, release: 1, volume: -4 },
+  trumpet: { attack: 0.05, release: 0.6, volume: -6 },
+  'bass-electric': { attack: 0.01, release: 0.8, volume: -4 },
+}
+
+// Ordered list for the settings pickers
+export const INSTRUMENT_OPTIONS = [
+  'synth', 'pad', 'piano', 'organ', 'guitar-acoustic', 'harp',
+  'cello', 'violin', 'flute', 'clarinet', 'trumpet', 'bass-electric',
+]
+
 function midiToNoteName(midi) {
   const octave = Math.floor(midi / 12) - 1
   return MIDI_NOTE_NAMES[midi % 12] + octave
@@ -19,7 +58,7 @@ function midiToNoteName(midi) {
 
 // Tonic name → MIDI note number at octave 2
 function tonicToMidi(tonic, octave = 2) {
-  const idx = MIDI_NOTE_NAMES.indexOf(tonic)
+  const idx = MIDI_NOTE_NAMES.indexOf(normalizeKeyName(tonic))
   if (idx === -1) return 45 // fallback A2
   return (octave + 1) * 12 + idx
 }
@@ -29,6 +68,9 @@ class AudioEngine {
     this.samplers = {}
     this.synths = {}
     this.midiGain = null  // Tone.Volume node for MIDI-only volume control
+    this.fxSaturation = null  // subtle Distortion for warmth
+    this.fxCompressor = null  // glue compressor (helps phone speakers)
+    this.fxReverb = null      // parallel 100%-wet send
     this.isInitialized = false
     this.cursorPosition = 0
     this.onCursorUpdate = null
@@ -162,10 +204,22 @@ class AudioEngine {
       
       Tone.context.lookAhead = 0.05
 
-      // MIDI-only gain node. All samplers/synths connect here → Destination.
+      // MIDI-only gain node → mastering FX chain → Destination.
+      //   midiGain → subtle saturation → compressor → destination
+      //   midiGain → reverb (100% wet, parallel send) → destination
       // refAudioPlayer connects directly to Destination, so setVolume()
       // on this node only affects MIDI, never the audio reference track.
-      this.midiGain = new Tone.Volume(0).toDestination()
+      this.midiGain = new Tone.Volume(0)
+      this.fxSaturation = new Tone.Distortion(0.05)
+      this.fxCompressor = new Tone.Compressor({ threshold: -20, ratio: 3, attack: 0.01, release: 0.2 })
+      this.fxReverb = new Tone.Reverb({ decay: 1.6, preDelay: 0.01, wet: 1 })
+      this.midiGain.connect(this.fxSaturation)
+      this.fxSaturation.connect(this.fxCompressor)
+      this.fxCompressor.toDestination()
+      this.midiGain.connect(this.fxReverb)
+      this.fxReverb.toDestination()
+      // The convolver builds its impulse response asynchronously
+      try { await this.fxReverb.ready } catch (_) {}
 
       // Silent keepalive: connect a zero-gain node to destination so iOS Safari
       // keeps the AudioContext alive instead of suspending it when idle.
@@ -336,25 +390,28 @@ class AudioEngine {
 
   async loadInstrument(instrument, config = {}) {
     this.instrumentConfigs[instrument] = config
-    
-    if (instrument === 'synth') {
-      if (this.synths['synth']) {
+
+    if (SYNTH_TYPES[instrument]) {
+      if (this.synths[instrument]) {
         this.applyInstrumentConfig(instrument, config)
         return Promise.resolve()
       }
-      
+
+      const def = SYNTH_TYPES[instrument]
       const synth = new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'triangle' },
-        envelope: {
-          attack: 0.005,
-          decay: 0.1,
-          sustain: 0.4,
-          release: 1
-        }
-      }).connect(this.midiGain)
-      
-      synth.volume.value = config.volume !== undefined ? config.volume : -6
-      this.synths['synth'] = synth
+        oscillator: def.oscillator,
+        envelope: def.envelope,
+      })
+      if (def.filter) {
+        const filter = new Tone.Filter(def.filter, 'lowpass').connect(this.midiGain)
+        synth.connect(filter)
+        synth.filterNode = filter
+      } else {
+        synth.connect(this.midiGain)
+      }
+
+      synth.volume.value = config.volume !== undefined ? config.volume : def.volume
+      this.synths[instrument] = synth
       return Promise.resolve()
     }
     
@@ -422,15 +479,14 @@ class AudioEngine {
   }
 
   applyInstrumentConfig(instrument, config = {}) {
-    if (instrument === 'synth') {
-      const synth = this.synths['synth']
-      if (!synth) return
+    const synth = this.synths[instrument]
+    if (synth) {
       if (config.volume !== undefined) {
         synth.volume.value = config.volume
       }
       return
     }
-    
+
     const sampler = this.samplers[instrument]
     if (!sampler) return
     
@@ -516,35 +572,28 @@ class AudioEngine {
     }
   }
 
+  // Resolve an instrument name to a playable node: own synth → own sampler →
+  // 'synth' → 'piano' → null. Synths win over samplers of the same name.
+  getPlayer(instrument) {
+    return this.synths[instrument]
+      || this.samplers[instrument]
+      || this.synths['synth']
+      || this.samplers['piano']
+      || null
+  }
+
   async playNote(noteName, duration = '8n', instrument = 'piano') {
     try {
       await this.ensureActive({ loadDefaultPiano: false })
 
       // Reload instrument if it was lost during a context rebuild
-      if (instrument === 'synth') {
-        if (!this.synths['synth'] && this.instrumentConfigs['synth']) {
-          await this.loadInstrument('synth', this.instrumentConfigs['synth'])
-        }
-      } else {
-        if (!this.samplers[instrument] && this.instrumentConfigs[instrument]) {
-          await this.loadInstrument(instrument, this.instrumentConfigs[instrument])
-        }
-        if (!this.samplers['piano'] && this.instrumentConfigs['piano']) {
-          await this.loadInstrument('piano', this.instrumentConfigs['piano'])
-        }
+      if (!this.synths[instrument] && !this.samplers[instrument] && this.instrumentConfigs[instrument]) {
+        await this.loadInstrument(instrument, this.instrumentConfigs[instrument])
       }
 
-      if (instrument === 'synth') {
-        const synth = this.synths['synth']
-        if (synth) {
-          synth.triggerAttackRelease(noteName, duration, Tone.now(), 0.8)
-        }
-        return
-      }
-      
-      const sampler = this.samplers[instrument] || this.samplers['piano']
-      if (sampler) {
-        sampler.triggerAttackRelease(noteName, duration, Tone.now(), 0.8)
+      const player = this.getPlayer(instrument)
+      if (player) {
+        player.triggerAttackRelease(noteName, duration, Tone.now(), 0.8)
       }
     } catch (error) {
       console.warn('Failed to play note:', error)
@@ -574,17 +623,9 @@ class AudioEngine {
         const noteInstrument = noteData.instrument || instrument
         const noteVolume = noteData.volume !== undefined ? noteData.volume : trackVolume
         
-        let instrumentObj
-        if (noteInstrument === 'synth') {
-          instrumentObj = this.synths['synth']
-        } else {
-          instrumentObj = this.samplers[noteInstrument] || this.samplers['piano']
-        }
-        
+        let instrumentObj = this.getPlayer(noteInstrument)
         if (!instrumentObj) {
-          console.warn(`[AudioEngine] Instrument ${noteInstrument} not found, using piano`)
-          instrumentObj = this.samplers['piano']
-          if (!instrumentObj) instrumentObj = this.synths['synth']
+          console.warn(`[AudioEngine] Instrument ${noteInstrument} not loaded`)
         }
         
         const volumeMultiplier = Math.pow(10, noteVolume / 20)
@@ -596,6 +637,7 @@ class AudioEngine {
           ppq
         }
       })
+      .filter(noteData => noteData.instrument)
       .sort((a, b) => a.start - b.start)  // Sort by start time ascending
     this.currentNoteIndex = 0
     
@@ -875,9 +917,16 @@ class AudioEngine {
     // Clean up any live MIDI notes
     this.liveMidiNotes = {}
     Object.values(this.samplers).forEach(sampler => { try { sampler.dispose() } catch (_) {} })
-    Object.values(this.synths).forEach(synth => { try { synth.dispose() } catch (_) {} })
+    Object.values(this.synths).forEach(synth => {
+      try { synth.filterNode?.dispose() } catch (_) {}
+      try { synth.dispose() } catch (_) {}
+    })
     this.samplers = {}
     this.synths = {}
+    for (const key of ['fxSaturation', 'fxCompressor', 'fxReverb']) {
+      try { this[key]?.dispose() } catch (_) {}
+      this[key] = null
+    }
     if (this.midiGain) {
       try { this.midiGain.dispose() } catch (_) {}
       this.midiGain = null
