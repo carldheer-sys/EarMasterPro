@@ -68,7 +68,14 @@ try {
     .map(e => e.name)
     .sort()
 } catch (err) {
+  // Music_Catalog lives outside the repo, so CI hosts (Netlify) don't have it.
+  // The generated catalog is committed under public/catalog/ — reuse it there.
+  if (await fileExists(manifestPath)) {
+    console.log(`[catalog] Catalog source not found (${err.message}); using committed catalog in public/catalog/`)
+    process.exit(0)
+  }
   console.error(`[catalog] Cannot read catalog root: ${err.message}`)
+  console.error(`[catalog] No generated catalog at ${manifestPath} either — nothing to serve`)
   process.exit(1)
 }
 
