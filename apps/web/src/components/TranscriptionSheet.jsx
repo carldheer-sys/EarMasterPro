@@ -1,26 +1,32 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { FileText, Loader2, X } from 'lucide-react'
-
-// The bundled Google-Docs HTML is authored for a desktop-width page. Render it
-// at a fixed natural width and scale it down to fit the sheet so tables never
-// cause horizontal scrolling on phones.
-const DOC_WIDTH = 720
+import { FileText, Hash, Loader2, Type, X } from 'lucide-react'
 
 /**
- * Transcription sheet: shows the song's bundled Google-Docs HTML transcription
- * (Chords | Melody table per phrase row). Fetches the document lazily on open.
+ * Transcription sheet: shows the song's bundled transcription HTML
+ * (Chords | Melody table per phrase row + notes). The doc carries both
+ * notations and switches via body[data-notation]; theme follows the app.
  *
  * url: song-level transcription asset from catalog.json (e.g. /catalog/…/doc.html)
  * sectionAnchor: optional element id to scroll to (e.g. 'chorus-section')
+ * notation: 'theory' (degrees/Roman) | 'names' (note/chord names)
+ * onNotationChange: flips the shared app notation state
  */
-function TranscriptionSheet({ open, onClose, url, title, sectionAnchor, isDark }) {
+function TranscriptionSheet({ open, onClose, url, title, sectionAnchor, isDark, notation = 'theory', onNotationChange }) {
   const [html, setHtml] = useState(null)
   const [error, setError] = useState('')
   const [docHeight, setDocHeight] = useState(0)
-  const [sheetWidth, setSheetWidth] = useState(0)
   const frameRef = useRef(null)
   const bodyRef = useRef(null)
+
+  const applyDocPrefs = useCallback(() => {
+    const doc = frameRef.current?.contentDocument
+    if (!doc?.body) return
+    doc.body.dataset.notation = notation === 'names' ? 'names' : 'theory'
+    doc.body.dataset.theme = isDark ? 'dark' : 'light'
+    const h = Math.max(doc.documentElement?.scrollHeight || 0, doc.body?.scrollHeight || 0)
+    if (h) setDocHeight(h)
+  }, [notation, isDark])
 
   useEffect(() => {
     if (!open) return
@@ -45,25 +51,17 @@ function TranscriptionSheet({ open, onClose, url, title, sectionAnchor, isDark }
     }
   }, [open, url, onClose])
 
-  useEffect(() => {
-    if (!open || !bodyRef.current) return
-    const ro = new ResizeObserver(() => setSheetWidth(bodyRef.current.clientWidth))
-    ro.observe(bodyRef.current)
-    setSheetWidth(bodyRef.current.clientWidth)
-    return () => ro.disconnect()
-  }, [open])
-
-  const scale = Math.min(1, sheetWidth / DOC_WIDTH)
+  // Re-push notation/theme whenever they change (also covers doc reload)
+  useEffect(() => { if (open) applyDocPrefs() }, [open, notation, isDark, applyDocPrefs])
 
   const onFrameLoad = () => {
+    applyDocPrefs()
     const doc = frameRef.current?.contentDocument
     if (!doc) return
-    const h = Math.max(doc.documentElement?.scrollHeight || 0, doc.body?.scrollHeight || 0)
-    setDocHeight(h)
     if (sectionAnchor) {
       const el = doc.getElementById(sectionAnchor)
       if (el && bodyRef.current) {
-        bodyRef.current.scrollTop = Math.max(0, el.offsetTop * scale - 8)
+        bodyRef.current.scrollTop = Math.max(0, el.offsetTop - 8)
       }
     }
   }
@@ -79,9 +77,20 @@ function TranscriptionSheet({ open, onClose, url, title, sectionAnchor, isDark }
             <FileText className={`h-5 w-5 shrink-0 ${isDark ? 'text-sky-300' : 'text-sky-600'}`} />
             <h2 className="truncate text-lg font-extrabold tracking-tight">{title || 'Transcription'}</h2>
           </div>
-          <button onClick={onClose} className={`rounded-full p-2.5 transition active:scale-95 ${isDark ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-200 hover:bg-slate-300'}`} aria-label="Close transcription">
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              onClick={() => onNotationChange?.(notation === 'theory' ? 'names' : 'theory')}
+              title={notation === 'theory' ? 'Notation: scale degrees / Roman numerals (tap for note & chord names)' : 'Notation: note & chord names (tap for scale degrees / Roman numerals)'}
+              className={`rounded-full p-2.5 transition active:scale-95 ${notation === 'names'
+                ? 'bg-sky-400/90 text-slate-950'
+                : isDark ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-200 hover:bg-slate-300'}`}
+              aria-label="Toggle notation">
+              {notation === 'theory' ? <Hash className="h-4 w-4" /> : <Type className="h-4 w-4" />}
+            </button>
+            <button onClick={onClose} className={`rounded-full p-2.5 transition active:scale-95 ${isDark ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-200 hover:bg-slate-300'}`} aria-label="Close transcription">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div ref={bodyRef} className="flex-1 overflow-y-auto overscroll-contain">
@@ -94,23 +103,19 @@ function TranscriptionSheet({ open, onClose, url, title, sectionAnchor, isDark }
             </div>
           )}
           {html && (
-            <div style={{ height: docHeight ? docHeight * scale : 'auto', overflow: 'hidden' }}>
-              <iframe
-                ref={frameRef}
-                title="Transcription"
-                srcDoc={html}
-                onLoad={onFrameLoad}
-                sandbox="allow-scripts allow-same-origin"
-                style={{
-                  width: DOC_WIDTH,
-                  height: docHeight || 800,
-                  border: 0,
-                  transform: `scale(${scale})`,
-                  transformOrigin: '0 0',
-                  display: 'block',
-                }}
-              />
-            </div>
+            <iframe
+              ref={frameRef}
+              title="Transcription"
+              srcDoc={html}
+              onLoad={onFrameLoad}
+              sandbox="allow-scripts allow-same-origin"
+              style={{
+                width: '100%',
+                height: docHeight || 800,
+                border: 0,
+                display: 'block',
+              }}
+            />
           )}
         </div>
       </div>

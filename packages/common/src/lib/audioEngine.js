@@ -18,12 +18,12 @@ const SYNTH_TYPES = {
   synth: {
     oscillator: { type: 'triangle' },
     envelope: { attack: 0.005, decay: 0.1, sustain: 0.4, release: 1 },
-    volume: -6,
+    volume: -10,
   },
   pad: {
     oscillator: { type: 'fatsawtooth', count: 3, spread: 22 },
     envelope: { attack: 0.3, decay: 0.5, sustain: 0.7, release: 2.2 },
-    volume: -10,
+    volume: -12,
     filter: 2200,
   },
 }
@@ -31,8 +31,8 @@ const SYNTH_TYPES = {
 // Per-instrument defaults for the sample-based sounds (from the previous app
 // version). Volume compensates for each sample set's loudness.
 export const INSTRUMENT_CONFIGS = {
-  synth: { volume: -8 },
-  pad: { volume: -8 },
+  synth: { volume: -10 },
+  pad: { volume: -10 },
   piano: { attack: 0.02, release: 1, volume: -6 },
   violin: { attack: 0.1, release: 1.2, volume: -4 },
   flute: { attack: 0.08, release: 0.8, volume: -2 },
@@ -56,6 +56,38 @@ function midiToNoteName(midi) {
   return MIDI_NOTE_NAMES[midi % 12] + octave
 }
 
+/**
+ * Race an AudioContext.resume() (or Tone.start()) against a timeout.
+ * iOS Safari can leave resume() pending forever on interrupted contexts —
+ * awaiting it bare would hang playback setup permanently.
+ */
+export function resumeWithTimeout(promise, ms = 1500) {
+  return Promise.race([
+    Promise.resolve(promise).then(() => true).catch(() => false),
+    new Promise(resolve => setTimeout(() => resolve(false), ms)),
+  ])
+}
+
+/** A context state from which audio cannot currently flow. */
+export function isContextBlocked(state) {
+  return state === 'suspended' || state === 'interrupted' || state === 'closed'
+}
+
+/**
+ * Replace the global Tone context with a fresh one and close the previous
+ * raw context. iOS only allows a handful of live AudioContexts — rebuilding
+ * without closing leaks one every time and eventually kills audio for good.
+ */
+export function swapToneContext(latencyHint = 'playback') {
+  const prevRaw = Tone.context?.rawContext
+  Tone.setContext(new Tone.Context({ latencyHint }))
+  Tone.context.lookAhead = 0.05
+  if (prevRaw && prevRaw !== Tone.context.rawContext && prevRaw.state !== 'closed') {
+    try { prevRaw.close() } catch (_) {}
+  }
+  return Tone.context.rawContext
+}
+
 // Tonic name → MIDI note number at octave 2
 function tonicToMidi(tonic, octave = 2) {
   const idx = MIDI_NOTE_NAMES.indexOf(normalizeKeyName(tonic))
@@ -68,9 +100,10 @@ class AudioEngine {
     this.samplers = {}
     this.synths = {}
     this.midiGain = null  // Tone.Volume node for MIDI-only volume control
-    this.fxSaturation = null  // subtle Distortion for warmth
     this.fxCompressor = null  // glue compressor (helps phone speakers)
+    this.fxLimiter = null     // final peak safety before the destination
     this.fxReverb = null      // parallel 100%-wet send
+    this.fxReverbSend = null  // send level into the reverb
     this.isInitialized = false
     this.cursorPosition = 0
     this.onCursorUpdate = null
@@ -84,7 +117,8 @@ class AudioEngine {
     this.lastActiveAt = Date.now()
     this.staleContextMs = 20 * 60 * 1000
     this.keepaliveIntervalId = null
-    this.silentKeepalive = null
+    this.silentKeepalive = null   // Gain(0) destination tap for the keepalive source
+    this.silentSource = null      // looping silent buffer that keeps the graph active
     
     // Look-ahead scheduling
     this.lookAheadWindow = 1.0 // seconds (1000ms)
@@ -96,7 +130,13 @@ class AudioEngine {
     // Drone synth layers
     this.droneSynths = []
     this.droneLfos = []
+    this.droneGains = []          // per-layer gain nodes (must be disposed with the drone)
     this.droneScheduledEvents = []
+
+    // Instrument loading: dedupe concurrent loads and remember instruments
+    // with no sample map so they don't re-warn on every play.
+    this.instrumentLoads = {}
+    this.missingInstruments = new Set()
     
     // Live MIDI keyboard notes (for real-time playing)
     this.liveMidiNotes = {}
@@ -199,32 +239,44 @@ class AudioEngine {
       const latencyHint = options.latencyHint || 'playback'
       // Set latencyHint to 'playback' for stability with large MIDI sequences
       if (!Tone.context._initialized || Tone.context.state === 'closed' || Tone.context.rawContext?.state === 'closed') {
-        await Tone.setContext(new Tone.Context({ latencyHint }))
+        swapToneContext(latencyHint)
       }
-      
+
       Tone.context.lookAhead = 0.05
 
       // MIDI-only gain node → mastering FX chain → Destination.
-      //   midiGain → subtle saturation → compressor → destination
-      //   midiGain → reverb (100% wet, parallel send) → destination
+      //   midiGain → compressor → limiter → destination
+      //   midiGain → reverbSend (−14 dB) → reverb (100% wet) → destination
+      // The limiter is the last stage so summed voices can't clip the output.
       // refAudioPlayer connects directly to Destination, so setVolume()
       // on this node only affects MIDI, never the audio reference track.
-      this.midiGain = new Tone.Volume(0)
-      this.fxSaturation = new Tone.Distortion(0.05)
-      this.fxCompressor = new Tone.Compressor({ threshold: -20, ratio: 3, attack: 0.01, release: 0.2 })
+      this.midiGain = new Tone.Volume(-3)
+      this.fxCompressor = new Tone.Compressor({ threshold: -18, ratio: 2.5, attack: 0.01, release: 0.2 })
+      this.fxLimiter = new Tone.Limiter(-1.5)
+      this.fxReverbSend = new Tone.Gain(Math.pow(10, -14 / 20))
       this.fxReverb = new Tone.Reverb({ decay: 1.6, preDelay: 0.01, wet: 1 })
-      this.midiGain.connect(this.fxSaturation)
-      this.fxSaturation.connect(this.fxCompressor)
-      this.fxCompressor.toDestination()
-      this.midiGain.connect(this.fxReverb)
+      this.midiGain.connect(this.fxCompressor)
+      this.fxCompressor.connect(this.fxLimiter)
+      this.fxLimiter.toDestination()
+      this.midiGain.connect(this.fxReverbSend)
+      this.fxReverbSend.connect(this.fxReverb)
       this.fxReverb.toDestination()
       // The convolver builds its impulse response asynchronously
       try { await this.fxReverb.ready } catch (_) {}
 
-      // Silent keepalive: connect a zero-gain node to destination so iOS Safari
-      // keeps the AudioContext alive instead of suspending it when idle.
-      if (!this.silentKeepalive) {
-        this.silentKeepalive = new Tone.Gain(0).toDestination()
+      // Silent keepalive: a looping *silent buffer source* through a 0-gain
+      // node keeps the render graph nominally active. (A bare Gain node with
+      // no input does nothing — iOS would still suspend an idle context.)
+      if (!this.silentSource) {
+        const raw = Tone.context.rawContext
+        this.silentKeepalive = raw.createGain()
+        this.silentKeepalive.gain.value = 0
+        this.silentKeepalive.connect(raw.destination)
+        this.silentSource = raw.createBufferSource()
+        this.silentSource.buffer = raw.createBuffer(1, raw.sampleRate, raw.sampleRate)
+        this.silentSource.loop = true
+        this.silentSource.connect(this.silentKeepalive)
+        try { this.silentSource.start() } catch (_) {}
       }
 
       if (options.loadDefaultPiano !== false) {
@@ -264,8 +316,7 @@ class AudioEngine {
 
     if (forceRebuild) {
       this.dispose()
-      await Tone.setContext(new Tone.Context({ latencyHint }))
-      Tone.context.lookAhead = 0.05
+      swapToneContext(latencyHint)
       contextChanged = true
     }
 
@@ -287,18 +338,21 @@ class AudioEngine {
       }
     }
 
-    await Tone.start()
-    if (Tone.context.state !== 'running') await Tone.context.resume()
-    if (Tone.context.rawContext?.state !== 'running') await Tone.context.rawContext.resume()
+    // Timeout-guarded resume: on iOS a resume() promise can hang forever on an
+    // interrupted context — never await it bare.
+    await resumeWithTimeout(Tone.start())
+    if (Tone.context.state !== 'running') await resumeWithTimeout(Tone.context.resume())
+    if (Tone.context.rawContext?.state !== 'running') await resumeWithTimeout(Tone.context.rawContext.resume())
 
-    if (Tone.context.state === 'closed' || Tone.context.rawContext?.state === 'closed') {
+    // Still blocked (suspended/interrupted/closed): rebuild the context once
+    // and retry — the caller is usually inside a user gesture here.
+    if (isContextBlocked(Tone.context.state) || isContextBlocked(Tone.context.rawContext?.state)) {
       this.dispose()
-      await Tone.setContext(new Tone.Context({ latencyHint }))
-      Tone.context.lookAhead = 0.05
+      swapToneContext(latencyHint)
       await this.initialize({ loadDefaultPiano, latencyHint })
-      await Tone.start()
-      if (Tone.context.state !== 'running') await Tone.context.resume()
-      if (Tone.context.rawContext?.state !== 'running') await Tone.context.rawContext.resume()
+      await resumeWithTimeout(Tone.start())
+      if (Tone.context.state !== 'running') await resumeWithTimeout(Tone.context.resume())
+      if (Tone.context.rawContext?.state !== 'running') await resumeWithTimeout(Tone.context.rawContext.resume())
       contextChanged = true
     }
 
@@ -310,7 +364,6 @@ class AudioEngine {
   async startAudioContext() {
     try {
       await this.ensureActive()
-      console.log('Audio context started')
       return true
     } catch (error) {
       console.error('Failed to start audio context:', error)
@@ -324,12 +377,11 @@ class AudioEngine {
       try {
         const rawCtx = Tone.context?.rawContext
         if (!rawCtx) return
-        if (rawCtx.state === 'suspended') {
-          await rawCtx.resume()
-          console.log('[AudioEngine] Keepalive: resumed suspended context')
+        if (rawCtx.state === 'suspended' || rawCtx.state === 'interrupted') {
+          await resumeWithTimeout(rawCtx.resume(), 800)
         }
-        if (Tone.context?.state === 'suspended') {
-          await Tone.context.resume()
+        if (Tone.context?.state === 'suspended' || Tone.context?.state === 'interrupted') {
+          await resumeWithTimeout(Tone.context.resume(), 800)
         }
         if (rawCtx.state === 'running' && this.isInitialized) {
           this.lastActiveAt = Date.now()
@@ -351,7 +403,6 @@ class AudioEngine {
     if (Tone.Transport) {
       const internalBpm = timeSignature ? getInternalBpm(bpm, timeSignature) : bpm
       Tone.Transport.bpm.value = internalBpm
-      console.log(`[AudioEngine] Set tempo: project BPM = ${bpm}, internal BPM = ${internalBpm}`)
     }
   }
 
@@ -391,10 +442,23 @@ class AudioEngine {
   async loadInstrument(instrument, config = {}) {
     this.instrumentConfigs[instrument] = config
 
+    // Dedupe concurrent loads — a second call joins the in-flight promise.
+    if (this.instrumentLoads[instrument]) return this.instrumentLoads[instrument]
+
+    const task = this._loadInstrumentInner(instrument, config)
+    this.instrumentLoads[instrument] = task
+    try {
+      await task
+    } finally {
+      delete this.instrumentLoads[instrument]
+    }
+  }
+
+  async _loadInstrumentInner(instrument, config) {
     if (SYNTH_TYPES[instrument]) {
       if (this.synths[instrument]) {
         this.applyInstrumentConfig(instrument, config)
-        return Promise.resolve()
+        return
       }
 
       const def = SYNTH_TYPES[instrument]
@@ -412,18 +476,21 @@ class AudioEngine {
 
       synth.volume.value = config.volume !== undefined ? config.volume : def.volume
       this.synths[instrument] = synth
-      return Promise.resolve()
+      return
     }
-    
+
     if (this.samplers[instrument]) {
       this.applyInstrumentConfig(instrument, config)
-      return Promise.resolve()
+      return
     }
 
     const noteMap = SampleLibrary[instrument]
     if (!noteMap) {
-      console.warn(`[AudioEngine] Unknown instrument: ${instrument}`)
-      return Promise.resolve()
+      if (!this.missingInstruments.has(instrument)) {
+        this.missingInstruments.add(instrument)
+        console.warn(`[AudioEngine] No sample map for instrument: ${instrument}`)
+      }
+      return
     }
 
     // Ensure all samples are fetched and cached as ArrayBuffers
@@ -474,8 +541,6 @@ class AudioEngine {
     sampler.connect(this.midiGain)
     this.samplers[instrument] = sampler
     this.applyInstrumentConfig(instrument, config)
-    console.log(`[AudioEngine] ${instrument} sampler created from ${Object.keys(decodedUrls).length} buffers`)
-    return Promise.resolve()
   }
 
   applyInstrumentConfig(instrument, config = {}) {
@@ -511,9 +576,7 @@ class AudioEngine {
     
     const contextStarted = await this.startAudioContext()
     if (!contextStarted) throw new Error('Audio context could not be started')
-    
-    console.log('[AudioEngine] start() called, allNotes.length:', this.allNotes.length)
-    
+
     Tone.Transport.position = `${Math.round(startBeat * Tone.Transport.PPQ)}i`
     Tone.Transport.start()
     this.lastActiveAt = Date.now()
@@ -575,11 +638,15 @@ class AudioEngine {
   // Resolve an instrument name to a playable node: own synth → own sampler →
   // 'synth' → 'piano' → null. Synths win over samplers of the same name.
   getPlayer(instrument) {
-    return this.synths[instrument]
-      || this.samplers[instrument]
-      || this.synths['synth']
-      || this.samplers['piano']
-      || null
+    const player = this.synths[instrument] || this.samplers[instrument]
+    if (player) return player
+    const fallback = this.synths['synth'] || this.samplers['piano'] || null
+    // Surface silent substitutions — a missing map used to masquerade as synth.
+    if (fallback && !this.missingInstruments.has(instrument)) {
+      this.missingInstruments.add(instrument)
+      console.warn(`[AudioEngine] No player for '${instrument}' — falling back to default`)
+    }
+    return fallback
   }
 
   async playNote(noteName, duration = '8n', instrument = 'piano') {
@@ -601,9 +668,6 @@ class AudioEngine {
   }
 
   scheduleNotes(notes, timeDivision, bars = 4, instrument = 'piano', trackVolume = 0) {
-    console.log('[AudioEngine.scheduleNotes] Called with', notes.length, 'notes')
-    console.log('[AudioEngine.scheduleNotes] First 3 notes:', notes.slice(0, 3).map(n => ({ id: n.id, note: n.note, start: n.start })))
-    
     const beatsPerBar = Tone.Transport.timeSignature
     const ppq = Tone.Transport.PPQ
     
@@ -640,9 +704,7 @@ class AudioEngine {
       .filter(noteData => noteData.instrument)
       .sort((a, b) => a.start - b.start)  // Sort by start time ascending
     this.currentNoteIndex = 0
-    
-    console.log('[AudioEngine.scheduleNotes] Stored and sorted', this.allNotes.length, 'notes')
-    
+
     // Initial batch schedule (will be supplemented by look-ahead scheduler)
     this.scheduleLookAheadBatch()
   }
@@ -744,32 +806,21 @@ class AudioEngine {
   }
 
   clearScheduledNotes() {
-    console.log('[AudioEngine] clearScheduledNotes called')
-    console.log('[AudioEngine] - allNotes.length before:', this.allNotes.length)
-    console.log('[AudioEngine] - scheduledEvents.length before:', this.scheduledEvents.length)
-    
     // CRITICAL: Stop the look-ahead scheduler FIRST to prevent it from scheduling more notes
     this.stopLookAheadScheduler()
-    
+
     if (this.stopEventId !== null) {
-      console.log('[AudioEngine] - Clearing stopEventId:', this.stopEventId)
       try { Tone.Transport.clear(this.stopEventId) } catch (_) {}
       this.stopEventId = null
     }
-    
-    console.log('[AudioEngine] - Clearing', this.scheduledEvents.length, 'scheduled events')
-    this.scheduledEvents.forEach((event, idx) => {
-      console.log(`[AudioEngine] - Clearing event ${idx}: id=${event.id}, tick=${event.tick}`)
+
+    this.scheduledEvents.forEach((event) => {
       try { Tone.Transport.clear(event.id || event) } catch (_) {}
     })
     this.scheduledEvents = []
     this.allNotes = []
     this.currentNoteIndex = 0
     this.killAllActiveNotes()
-    
-    console.log('[AudioEngine] clearScheduledNotes done')
-    console.log('[AudioEngine] - allNotes.length after:', this.allNotes.length)
-    console.log('[AudioEngine] - scheduledEvents.length after:', this.scheduledEvents.length)
   }
 
   scheduleStopEvent(bars = 4) {
@@ -854,8 +905,10 @@ class AudioEngine {
       const noteName = midiToNoteName(layer.midi)
       const baseGain = Math.pow(10, layer.gainDb / 20)
 
-      // Slow tremolo LFO on a dedicated gain node
+      // Slow tremolo LFO on a dedicated gain node — tracked so stopDrone
+      // can dispose it; otherwise every drone start leaks nodes on midiGain.
       const lfoGain = new Tone.Gain(baseGain).connect(this.midiGain)
+      this.droneGains.push(lfoGain)
 
       const lfo = new Tone.LFO({
         frequency: layer.lfoHz,
@@ -906,6 +959,13 @@ class AudioEngine {
       try { s.triggerRelease(); s.dispose() } catch (_) {}
     }
     this.droneSynths = []
+
+    // Dispose the per-layer gain nodes (leak fix: they stay connected to
+    // midiGain otherwise and accumulate across every drone start).
+    for (const g of this.droneGains) {
+      try { g.dispose() } catch (_) {}
+    }
+    this.droneGains = []
   }
 
   dispose() {
@@ -923,7 +983,7 @@ class AudioEngine {
     })
     this.samplers = {}
     this.synths = {}
-    for (const key of ['fxSaturation', 'fxCompressor', 'fxReverb']) {
+    for (const key of ['fxCompressor', 'fxLimiter', 'fxReverbSend', 'fxReverb']) {
       try { this[key]?.dispose() } catch (_) {}
       this[key] = null
     }
@@ -931,8 +991,13 @@ class AudioEngine {
       try { this.midiGain.dispose() } catch (_) {}
       this.midiGain = null
     }
+    if (this.silentSource) {
+      try { this.silentSource.stop() } catch (_) {}
+      try { this.silentSource.disconnect() } catch (_) {}
+      this.silentSource = null
+    }
     if (this.silentKeepalive) {
-      try { this.silentKeepalive.dispose() } catch (_) {}
+      try { this.silentKeepalive.disconnect() } catch (_) {}
       this.silentKeepalive = null
     }
     try { Tone.Transport.stop() } catch (_) {}
@@ -945,3 +1010,5 @@ class AudioEngine {
 
 export const audioEngine = new AudioEngine()
 export default audioEngine
+
+if (typeof window !== 'undefined') window.audioEngine = audioEngine

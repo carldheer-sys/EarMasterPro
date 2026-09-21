@@ -5,137 +5,97 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ordinary — Verse and Pre-Chorus and Chorus Practice Tables</title>
   <style>
-    body { margin: 32px; color: #111827; background: #f8fafc; font-family: Arial, Helvetica, sans-serif; }
-    .toolbar { max-width: 1120px; margin: 0 auto 18px; padding: 14px 16px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
-    .toolbar p { margin: 0 0 10px; font-size: 14px; line-height: 1.4; }
-    button { margin: 0 6px 6px 0; padding: 8px 12px; border: 1px solid #64748b; border-radius: 5px; color: #fff; background: #334155; font-weight: 700; cursor: pointer; }
-    button:hover { background: #1e293b; }
-    #copy-status { display: inline-block; margin-left: 4px; font-size: 13px; color: #166534; }
-    #catalog-content { box-sizing: border-box; max-width: 1120px; margin: 0 auto; padding: 28px 32px; background: #fff; box-shadow: 0 1px 5px rgba(15, 23, 42, 0.16); }
+    :root { color-scheme: dark; }
+    body { margin:0; padding:14px; background:transparent; color:#e2e8f0;
+           font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif; }
+    .section { padding:14px 16px; margin:0 0 14px; border:1px solid rgba(148,163,184,.18);
+               border-radius:16px; background:rgba(148,163,184,.06); }
+    .sec-head { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:8px; }
+    .sec-head h3 { margin:0; font-size:14px; font-weight:800; letter-spacing:.02em; color:#f1f5f9; }
+    .keyline { margin:2px 0 0; font-size:12px; font-weight:600; color:#7dd3fc; }
+    .copy-btn { flex:none; margin-top:2px; padding:4px 10px; border:1px solid rgba(148,163,184,.3);
+                border-radius:999px; background:rgba(148,163,184,.1); color:#cbd5e1;
+                font:600 11px/1.4 inherit; cursor:pointer; }
+    .copy-btn:active { transform:scale(.95); }
+    .copy-btn.ok { color:#34d399; border-color:rgba(52,211,153,.4); }
+    table { font-family:inherit; }
+    .d { font-style:normal; }
+    .n { display:none; font-style:normal; }
+    body[data-notation="names"] .d { display:none; }
+    body[data-notation="names"] .n { display:inline; }
+    .nd { color:#f87171; font-weight:600; }
+    .notes { color:#cbd5e1; }
+    body[data-theme="light"] { color:#0f172a; }
+    body[data-theme="light"] .section { border-color:rgba(100,116,139,.25); background:rgba(241,245,249,.8); }
+    body[data-theme="light"] .sec-head h3 { color:#0f172a; }
+    body[data-theme="light"] .keyline { color:#0369a1; }
+    body[data-theme="light"] .copy-btn { border-color:rgba(100,116,139,.4); background:#e2e8f0; color:#334155; }
+    body[data-theme="light"] .notes { color:#334155; }
+    body[data-theme="light"] .nd { color:#dc2626; }
+
   </style>
 </head>
-<body>
-  <div class="toolbar">
-    <p><strong>Google Docs:</strong> Use a Copy button and paste normally. If browser security blocks automatic copying, the requested content will be selected; press Cmd+C once, then paste into Google Docs.</p>
-    <button type="button" onclick="copyRich('catalog-content', 'complete document')">Copy all</button>
-    <button type="button" onclick="copyRich('song-content', 'everything except conventions')">Copy without conventions</button>
-    <button type="button" onclick="copyRich('format-conventions', 'format conventions')">Copy conventions</button>
-    <button type="button" onclick="copyRich('verse-section', 'Verse')">Copy Verse</button>
-    <button type="button" onclick="copyRich('pre-chorus-and-chorus-section', 'Pre-Chorus and Chorus')">Copy Pre-Chorus and Chorus</button>
-    <span id="copy-status" role="status" aria-live="polite"></span>
-  </div>
-
-  <div id="catalog-content" style="box-sizing:border-box;max-width:1120px;margin:0 auto;padding:28px 32px;color:#111827;background:#ffffff;font-family:Arial,Helvetica,sans-serif;">
-    <div id="song-content" style="font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#111827;font-style:normal;">
-      <h2 class="MsoHeading2" style="mso-style-name:'Heading 2';margin:0 0 5px;font-family:Arial,Helvetica,sans-serif;line-height:1.15;color:#111827;">Alex Warren — Ordinary</h2>
-      <p class="MsoNormal" style="mso-style-name:Normal;margin:0 0 20px;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;"><a href="https://www.hooktheory.com/theorytab/view/alex-warren/ordinary" style="color:#2563eb;text-decoration:underline;">https://www.hooktheory.com/theorytab/view/alex-warren/ordinary</a></p>
-
-    <div id="verse-section" style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#111827;">
-      <p class="MsoNormal" style="mso-style-name:Normal;margin:0 0 7px;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#111827;"><strong>Verse</strong></p>
-      <p class="MsoNormal" style="mso-style-name:Normal;margin:0 0 10px;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#111827;">Key: D major</p>
-
-      <table border="0" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;border-spacing:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#111827;">
+<body data-notation="theory" data-theme="dark">
+  <div class="doc">
+    <div class="section" id="verse-section">
+      <div class="sec-head">
+        <div>
+          <h3>Verse</h3>
+          <p class="keyline">Key: D major</p>
+        </div>
+        <button type="button" class="copy-btn" onclick="copySection('verse-section', this)">Copy</button>
+      </div>
+      <table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;border-spacing:0;font-size:12.5px;line-height:1.45;">
         <thead>
-          <tr>
-            <th style="width:45%;padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;background-color:#d9d9d9;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:700;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:700;">Chords</p></th>
-            <th style="width:55%;padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;background-color:#d9d9d9;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:700;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:700;">Melody</p></th>
-          </tr>
+          <tr><th style="width:45%;padding:6px 8px;border:1px solid rgba(148,163,184,.28);background:rgba(148,163,184,.14);text-align:left;font-weight:700;white-space:nowrap;">Chords</th><th style="width:55%;padding:6px 8px;border:1px solid rgba(148,163,184,.28);background:rgba(148,163,184,.14);text-align:left;font-weight:700;white-space:nowrap;">Melody</th></tr>
         </thead>
         <tbody>
-          <tr>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">ii | ii | I | I</p></td>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">6 6 1 1 2 2 1 - | - 6 6 3 2 1 | 1 - 5 3 3 2 1 | 1 - 3 2 1 6 5</p></td>
-          </tr>
-          <tr>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">ii | ii | I | I</p></td>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">6 6 1 1 2 2 1 - | - 3 3 2 1 | 1 - 5 3 3 2 1 | 1 - 3 2 1 6 -</p></td>
-          </tr>
+          <tr><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">ii</span><span class="n">Em</span></span> | <span><span class="d">ii</span><span class="n">Em</span></span> | <span><span class="d">I</span><span class="n">D</span></span> | <span><span class="d">I</span><span class="n">D</span></span></td><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">6</span><span class="n">B2</span></span> <span><span class="d">6</span><span class="n">B2</span></span> <span><span class="d">1</span><span class="n">D3</span></span> <span><span class="d">1</span><span class="n">D3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">1</span><span class="n">D3</span></span> - | - <span><span class="d">6</span><span class="n">B2</span></span> <span><span class="d">6</span><span class="n">B2</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">1</span><span class="n">D3</span></span> | <span><span class="d">1</span><span class="n">D3</span></span> - <span><span class="d">5</span><span class="n">A2</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">1</span><span class="n">D3</span></span> | <span><span class="d">1</span><span class="n">D3</span></span> - <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">1</span><span class="n">D3</span></span> <span><span class="d">6</span><span class="n">B2</span></span> <span><span class="d">5</span><span class="n">A2</span></span></td></tr>
+          <tr><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">ii</span><span class="n">Em</span></span> | <span><span class="d">ii</span><span class="n">Em</span></span> | <span><span class="d">I</span><span class="n">D</span></span> | <span><span class="d">I</span><span class="n">D</span></span></td><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">6</span><span class="n">B2</span></span> <span><span class="d">6</span><span class="n">B2</span></span> <span><span class="d">1</span><span class="n">D3</span></span> <span><span class="d">1</span><span class="n">D3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">1</span><span class="n">D3</span></span> - | - <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">1</span><span class="n">D3</span></span> | <span><span class="d">1</span><span class="n">D3</span></span> - <span><span class="d">5</span><span class="n">A2</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">1</span><span class="n">D3</span></span> | <span><span class="d">1</span><span class="n">D3</span></span> - <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">1</span><span class="n">D3</span></span> <span><span class="d">6</span><span class="n">B2</span></span> -</td></tr>
         </tbody>
       </table>
     </div>
-      <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">&nbsp;</p>
-    <div id="pre-chorus-and-chorus-section" style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#111827;">
-      <p class="MsoNormal" style="mso-style-name:Normal;margin:0 0 7px;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#111827;"><strong>Pre-Chorus and Chorus</strong></p>
-      <p class="MsoNormal" style="mso-style-name:Normal;margin:0 0 10px;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#111827;">Key: D major</p>
-
-      <table border="0" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;border-spacing:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#111827;">
+    <div class="section" id="pre-chorus-and-chorus-section">
+      <div class="sec-head">
+        <div>
+          <h3>Pre-Chorus and Chorus</h3>
+          <p class="keyline">Key: D major</p>
+        </div>
+        <button type="button" class="copy-btn" onclick="copySection('pre-chorus-and-chorus-section', this)">Copy</button>
+      </div>
+      <table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;border-spacing:0;font-size:12.5px;line-height:1.45;">
         <thead>
-          <tr>
-            <th style="width:45%;padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;background-color:#d9d9d9;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:700;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:700;">Chords</p></th>
-            <th style="width:55%;padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;background-color:#d9d9d9;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:700;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:700;">Melody</p></th>
-          </tr>
+          <tr><th style="width:45%;padding:6px 8px;border:1px solid rgba(148,163,184,.28);background:rgba(148,163,184,.14);text-align:left;font-weight:700;white-space:nowrap;">Chords</th><th style="width:55%;padding:6px 8px;border:1px solid rgba(148,163,184,.28);background:rgba(148,163,184,.14);text-align:left;font-weight:700;white-space:nowrap;">Melody</th></tr>
         </thead>
         <tbody>
-          <tr>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">ii | ii | I | N.C.</p></td>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">- 3 5 6 | - 3 5 6 | 3 2 - 2 | 2 2 2 2 2 2 3 2 1</p></td>
-          </tr>
-          <tr>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">ii | ii | I | I</p></td>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">1 6 - 6 6 3 3 2 2 | - 3 3 3 3 2 1 | 1 5 5 3 3 2 2 | - 3 3 5 2 1</p></td>
-          </tr>
-          <tr>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">ii | ii | I | I</p></td>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">1 6 - 3 3 5 2 1 | 1 6 - 2 | 3 2 3 2 3 5 - 5 | 6 5 5 6 5 6 1 3 2 1</p></td>
-          </tr>
-          <tr>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">ii→I/3 | IV→V | vi | V→I/3</p></td>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">1 6 - 6 6 3 3 2 2 | - 3 3 3 3 2 1 | 1 6 - 6 6 3 3 2 2 | - 3 3 5 2 1</p></td>
-          </tr>
-          <tr>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">ii→I/3 | IV→V | vi | V</p></td>
-            <td style="padding:4px 6px;border:1px solid #374151;mso-border-alt:solid #374151 .75pt;text-align:left;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;white-space:nowrap;">
-            <p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;">1 6 - 6 3 2 1 2 3 | 3 2 1 - 5 | 6 5 6 5 6 1 - 1 | 2 1 2 1 2 3 2 1</p></td>
-          </tr>
+          <tr><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">ii</span><span class="n">Em</span></span> | <span><span class="d">ii</span><span class="n">Em</span></span> | <span><span class="d">I</span><span class="n">D</span></span> | N.C.</td><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;">- <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">5</span><span class="n">A3</span></span> <span><span class="d">6</span><span class="n">B3</span></span> | - <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">5</span><span class="n">A3</span></span> <span><span class="d">6</span><span class="n">B3</span></span> | <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> - <span><span class="d">2</span><span class="n">E3</span></span> | <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">1</span><span class="n">D3</span></span></td></tr>
+          <tr><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">ii</span><span class="n">Em</span></span> | <span><span class="d">ii</span><span class="n">Em</span></span> | <span><span class="d">I</span><span class="n">D</span></span> | <span><span class="d">I</span><span class="n">D</span></span></td><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">1</span><span class="n">D3</span></span> <span><span class="d">6</span><span class="n">B2</span></span> - <span><span class="d">6</span><span class="n">B2</span></span> <span><span class="d">6</span><span class="n">B2</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> | - <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">1</span><span class="n">D3</span></span> | <span><span class="d">1</span><span class="n">D3</span></span> <span><span class="d">5</span><span class="n">A2</span></span> <span><span class="d">5</span><span class="n">A2</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> | - <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">5</span><span class="n">A3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">1</span><span class="n">D3</span></span></td></tr>
+          <tr><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">ii</span><span class="n">Em</span></span> | <span><span class="d">ii</span><span class="n">Em</span></span> | <span><span class="d">I</span><span class="n">D</span></span> | <span><span class="d">I</span><span class="n">D</span></span></td><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">1</span><span class="n">D3</span></span> <span><span class="d">6</span><span class="n">B2</span></span> - <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">5</span><span class="n">A3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">1</span><span class="n">D3</span></span> | <span><span class="d">1</span><span class="n">D3</span></span> <span><span class="d">6</span><span class="n">B2</span></span> - <span><span class="d">2</span><span class="n">E3</span></span> | <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">2</span><span class="n">E3</span></span> <span><span class="d">3</span><span class="n">F#3</span></span> <span><span class="d">5</span><span class="n">A3</span></span> - <span><span class="d">5</span><span class="n">A3</span></span> | <span><span class="d">6</span><span class="n">B3</span></span> <span><span class="d">5</span><span class="n">A3</span></span> <span><span class="d">5</span><span class="n">A3</span></span> <span><span class="d">6</span><span class="n">B3</span></span> <span><span class="d">5</span><span class="n">A3</span></span> <span><span class="d">6</span><span class="n">B3</span></span> <span><span class="d">1</span><span class="n">D4</span></span> <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> <span><span class="d">1</span><span class="n">D4</span></span></td></tr>
+          <tr><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">ii</span><span class="n">Em</span></span>→<span><span class="d">I/3</span><span class="n">D/F#</span></span> | <span><span class="d">IV</span><span class="n">G</span></span>→<span><span class="d">V</span><span class="n">A</span></span> | <span><span class="d">vi</span><span class="n">Bm</span></span> | <span><span class="d">V</span><span class="n">A</span></span>→<span><span class="d">I/3</span><span class="n">D/F#</span></span></td><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">1</span><span class="n">D4</span></span> <span><span class="d">6</span><span class="n">B3</span></span> - <span><span class="d">6</span><span class="n">B3</span></span> <span><span class="d">6</span><span class="n">B3</span></span> <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> | - <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> <span><span class="d">1</span><span class="n">D4</span></span> | <span><span class="d">1</span><span class="n">D4</span></span> <span><span class="d">6</span><span class="n">B3</span></span> - <span><span class="d">6</span><span class="n">B3</span></span> <span><span class="d">6</span><span class="n">B3</span></span> <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> | - <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">5</span><span class="n">A4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> <span><span class="d">1</span><span class="n">D4</span></span></td></tr>
+          <tr><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">ii</span><span class="n">Em</span></span>→<span><span class="d">I/3</span><span class="n">D/F#</span></span> | <span><span class="d">IV</span><span class="n">G</span></span>→<span><span class="d">V</span><span class="n">A</span></span> | <span><span class="d">vi</span><span class="n">Bm</span></span> | <span><span class="d">V</span><span class="n">A</span></span></td><td style="padding:6px 8px;border:1px solid rgba(148,163,184,.2);vertical-align:top;"><span><span class="d">1</span><span class="n">D4</span></span> <span><span class="d">6</span><span class="n">B3</span></span> - <span><span class="d">6</span><span class="n">B3</span></span> <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> <span><span class="d">1</span><span class="n">D4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> <span><span class="d">3</span><span class="n">F#4</span></span> | <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> <span><span class="d">1</span><span class="n">D4</span></span> - <span><span class="d">5</span><span class="n">A3</span></span> | <span><span class="d">6</span><span class="n">B3</span></span> <span><span class="d">5</span><span class="n">A3</span></span> <span><span class="d">6</span><span class="n">B3</span></span> <span><span class="d">5</span><span class="n">A3</span></span> <span><span class="d">6</span><span class="n">B3</span></span> <span><span class="d">1</span><span class="n">D4</span></span> - <span><span class="d">1</span><span class="n">D4</span></span> | <span><span class="d">2</span><span class="n">E4</span></span> <span><span class="d">1</span><span class="n">D4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> <span><span class="d">1</span><span class="n">D4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> <span><span class="d">3</span><span class="n">F#4</span></span> <span><span class="d">2</span><span class="n">E4</span></span> <span><span class="d">1</span><span class="n">D4</span></span></td></tr>
         </tbody>
       </table>
     </div>
-
-      <p class="MsoNormal" style="mso-style-name:Normal;margin:18px 0 0;padding-top:10px;border-top:1px solid #d1d5db;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#6b7280;">Source: Hooktheory TheoryTab, accessed 2026-09-20. Crowd-sourced analysis, not an official score.</p>
-    </div>
-
-<div id="format-conventions" style="margin:28px 0 0;padding:18px 0 0;border-top:2px solid #d1d5db;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#111827;">
-      <p class="MsoNormal" style="mso-style-name:Normal;margin:0 0 10px;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#111827;"><strong>Format and color conventions</strong></p>
-      <ul style="margin:0;padding-left:22px;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#111827;">
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><strong>Artist–title:</strong> Heading 2.</p></li>
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><strong>All other content:</strong> Normal text, 11 pt, 1.15 line spacing.</p></li>
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><strong>|</strong> separates measures. Both cells in a row always cover the same measures.</p></li>
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><strong>→</strong> marks a chord change within one measure.</p></li>
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><strong>–</strong> is the short pickup-bar marker when no chord sounds before the first entry.</p></li>
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><strong>-</strong> in the melody marks one contiguous rest interval reconstructed from note durations, whether or not Hooktheory stores an explicit rest event.</p></li>
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><strong>Inversions:</strong> the scale degree after <strong>/</strong> is the bass degree relative to the active key; for example, <strong>bVII/2</strong> has scale degree 2 in the bass.</p></li>
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><strong>Extensions:</strong> suffixes such as <strong>7</strong>, <strong>maj7</strong>, and <strong>11</strong> are written inline with the Roman numeral.</p></li>
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><strong>N.C.</strong> marks an explicit no-chord/rest span.</p></li>
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><strong>Melody:</strong> scale degrees use the catalog's fixed semitone-relative notation (e.g. <strong>b3</strong>, <strong>b6</strong>, <strong>b7</strong> in a minor key), not Hooktheory's native scale-position numbers. In a minor key, the diatonic third/sixth/seventh are written <strong>b3</strong>, <strong>b6</strong>, <strong>b7</strong>; the chromatic major sixth is written <strong>6</strong> and is non-diatonic. In a major key, plain <strong>3</strong>, <strong>6</strong>, <strong>7</strong> are diatonic and <strong>b3</strong>, <strong>b6</strong>, <strong>b7</strong> are non-diatonic.</p></li>
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><strong>Roman numerals:</strong> chords are relative to the active key and follow the catalog chord conventions.</p></li>
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><span style="color:#c00000;"><strong>Red melody degree or Roman numeral</strong></span> = non-diatonic note or chord.</p></li>
-        <li style="margin:0 0 3px;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><span style="color:#008080;"><strong>Teal melody degree or Roman numeral</strong></span> = material after a key change within the same song part.</p></li>
-        <li style="margin:0;"><p class="MsoNormal" style="mso-style-name:Normal;margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;font-weight:normal;"><strong>Color priority:</strong> red overrides teal when material after a key change is also non-diatonic.</p></li>
-      </ul>
-    </div>
-
   </div>
 
   <script>
-    function buildClipboardHtml(element) {
-      return `\x3C!doctype html>\x3Chtml>\x3Chead>\x3Cmeta charset="utf-8">\x3C/head>\x3Cbody>\x3C!--StartFragment-->${element.outerHTML}\x3C!--EndFragment-->\x3C/body>\x3C/html>`
+    // Copy the section's visible notation as inline-styled HTML for Docs.
+    function cloneForCopy(section) {
+      const clone = section.cloneNode(true)
+      clone.querySelectorAll('.copy-btn').forEach(b => b.remove())
+      const hiddenSel = document.body.dataset.notation === 'names' ? '.d' : '.n'
+      clone.querySelectorAll(hiddenSel).forEach(el => el.remove())
+      // class-based red -> inline color so it survives the paste
+      clone.querySelectorAll('.nd').forEach(el => { el.style.color = '#c00000' })
+      // strip app-theme backgrounds so the paste looks right on white Docs
+      clone.querySelectorAll('th').forEach(el => {
+        el.style.background = '#d9d9d9'
+        el.style.border = '1px solid #374151'
+      })
+      clone.querySelectorAll('td').forEach(el => { el.style.border = '1px solid #374151' })
+      const wrap = document.createElement('div')
+      wrap.appendChild(clone)
+      return wrap
     }
 
     function selectContent(element) {
@@ -152,51 +112,39 @@
       const handler = event => {
         eventHandled = true
         event.preventDefault()
-        event.clipboardData.setData('text/html', buildClipboardHtml(element))
+        event.clipboardData.setData('text/html', element.outerHTML)
         event.clipboardData.setData('text/plain', element.innerText)
       }
-
       document.addEventListener('copy', handler)
       let copied = false
-      try {
-        copied = document.execCommand('copy')
-      } catch (error) {
-        copied = false
-      }
+      try { copied = document.execCommand('copy') } catch (e) { copied = false }
       document.removeEventListener('copy', handler)
-
-      if (copied) {
-        if (eventHandled) window.getSelection().removeAllRanges()
-      }
+      if (copied && eventHandled) window.getSelection().removeAllRanges()
       return copied ? eventHandled : false
     }
 
-    async function copyRich(elementId, label) {
-      const element = document.getElementById(elementId)
-      const status = document.getElementById('copy-status')
-      const html = buildClipboardHtml(element)
-      const text = element.innerText
-
+    async function copySection(sectionId, btn) {
+      const element = cloneForCopy(document.getElementById(sectionId))
+      const done = ok => {
+        btn.classList.add('ok')
+        btn.textContent = ok ? 'Copied' : 'Select+Cmd+C'
+        setTimeout(() => { btn.classList.remove('ok'); btn.textContent = 'Copy' }, 1600)
+      }
       try {
-        if (!navigator.clipboard || !window.ClipboardItem) throw new Error('Rich Clipboard API unavailable')
+        if (!navigator.clipboard || !window.ClipboardItem) throw new Error('no rich clipboard')
         await navigator.clipboard.write([
           new ClipboardItem({
-            'text/html': new Blob([html], { type: 'text/html' }),
-            'text/plain': new Blob([text], { type: 'text/plain' })
+            'text/html': new Blob([element.outerHTML], { type: 'text/html' }),
+            'text/plain': new Blob([element.innerText], { type: 'text/plain' })
           })
         ])
-        status.textContent = `Copied ${label} for Google Docs.`
-        return
-      } catch (error) {
-        if (legacyRichCopy(element)) {
-          status.textContent = `Copied ${label} with the browser fallback.`
-          return
-        }
+        done(true)
+      } catch (e) {
+        if (legacyRichCopy(element)) done(true)
+        else { selectContent(element); done(false) }
       }
-
-      selectContent(element)
-      status.textContent = `Browser security blocked automatic copy. ${label} is selected—press Cmd+C.`
     }
+
   </script>
 </body>
 </html>
