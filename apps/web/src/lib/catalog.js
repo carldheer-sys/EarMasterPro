@@ -5,7 +5,7 @@
  *   { artists: [{ name, songs: [{ title, sections: [SectionEntry] }] }] }
  *
  * SectionEntry.assets holds URL paths to the section's session JSON, MIDI
- * files and audio.wav, plus `capabilities` flags for missing assets.
+ * files and audio (mp3), plus `capabilities` flags for missing assets.
  */
 
 let catalogPromise = null
@@ -37,7 +37,7 @@ export async function loadSectionSession(entry, { signal } = {}) {
   return res.json()
 }
 
-/** Fetch + decode a section's audio.wav into an AudioBuffer. */
+/** Fetch + decode a section's audio (mp3) into an AudioBuffer. */
 export async function loadSectionAudio(entry, audioContext, { signal } = {}) {
   const res = await fetch(entry.assets.audio, { signal })
   if (!res.ok) throw new Error(`Audio HTTP ${res.status}`)

@@ -2,6 +2,18 @@
   command = "npm run build"
   publish = "dist/web"
 
+# The service worker script and the document must always be fetched fresh —
+# a cached sw.js or index.html strands clients on an old build.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

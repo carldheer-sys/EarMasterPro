@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "catalog": "node scripts/build-catalog.mjs",
-    "dev": "npm run catalog && vite --config apps/web/vite.config.js",
+    "dev": "npm run catalog && vite --config apps/web/vite.config.js --host",
     "build": "npm run catalog && vite build --config apps/web/vite.config.js",
     "preview": "vite preview --outDir dist/web --host 0.0.0.0",
     "test": "vitest run"
