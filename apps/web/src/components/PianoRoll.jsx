@@ -324,11 +324,19 @@ function PianoRoll({
     el.scrollLeft = Math.max(0, a.beat * beatWidth + 44 - a.cursorX)
   }, [beatWidth])
 
-  // ── Playhead + auto-scroll (RAF, reads cursorRef — no re-render) ──
+  // ── Playhead + canvas anchoring + auto-scroll (RAF — no re-render) ──
   useEffect(() => {
     let raf
     let last = -1
+    let lastSl = -1
     const tick = () => {
+      const sl = scrollRef.current?.scrollLeft ?? 0
+      // Keep the viewport-sized canvas glued to the scrollport (transform =
+      // compositor-only, no paint). +44 accounts for the sticky label column.
+      if (canvasRef.current && sl !== lastSl) {
+        canvasRef.current.style.transform = `translateX(${sl}px)`
+        lastSl = sl
+      }
       const frac = cursorRef?.current ?? 0
       const px = frac * gridWidth
       if (playheadRef.current && px !== last) {
@@ -350,22 +358,27 @@ function PianoRoll({
     return () => cancelAnimationFrame(raf)
   }, [isPlaying, gridWidth, cursorRef])
 
-  // ── Canvas render ────────────────────────────────────────────
+  // ── Canvas render — viewport slice only ─────────────────────
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx._cellH = cellH
-    const dpr = window.devicePixelRatio || 1
-    canvas.width = gridWidth * dpr
-    canvas.height = gridHeight * dpr
-    canvas.style.width = `${gridWidth}px`
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    const cssW = Math.min(Math.max(0, viewportWidth - 44), gridWidth)
+    if (cssW <= 0) return
+    const bw = Math.round(cssW * dpr)
+    const bh = Math.round(gridHeight * dpr)
+    // Assigning width/height clears the canvas — only touch it when it changed
+    if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh }
+    canvas.style.width = `${cssW}px`
     canvas.style.height = `${gridHeight}px`
-    ctx.scale(dpr, dpr)
+    // setTransform: dpr scale + viewport offset in one atomic reset
+    ctx.setTransform(dpr, 0, 0, dpr, -scrollLeft * dpr, 0)
 
     const vpStart = scrollLeft / beatWidth
-    const vpEnd = (scrollLeft + viewportWidth) / beatWidth
+    const vpEnd = (scrollLeft + cssW) / beatWidth
 
     renderGrid(ctx, { width: gridWidth, height: gridHeight, beatWidth, barStarts: effectiveBarStarts, totalBeats, lowestNote, highestNote, dpr, beatsPerDivision, isDark })
     renderNotes(ctx, { notes: displayNotes, beatWidth, cellH, lowestNote, highestNote, viewportStartBeat: vpStart, viewportEndBeat: vpEnd, dpr, showAnswers, notation, isDark })
@@ -425,7 +438,8 @@ function PianoRoll({
     if (Math.hypot(e.clientX - info.x, e.clientY - info.y) > 8) return
     const rect = canvasRef.current?.getBoundingClientRect()
     if (!rect) return
-    const x = e.clientX - rect.left
+    // Canvas is viewport-anchored: local x + scrollLeft → grid-space x
+    const x = e.clientX - rect.left + scrollLeft
     const y = e.clientY - rect.top
     const beat = (x / gridWidth) * totalBeats
     // Note hit-test first
@@ -440,7 +454,7 @@ function PianoRoll({
       }
     }
     onSeek?.(Math.max(0, Math.min(totalBeats, beat)))
-  }, [gridWidth, totalBeats, notes, beatWidth, highestNote, cellH, onNoteClick, onSeek])
+  }, [gridWidth, totalBeats, notes, beatWidth, highestNote, cellH, scrollLeft, onNoteClick, onSeek])
 
   const regionStartPx = regionStart * gridWidth
   const regionEndPx = regionEnd * gridWidth
@@ -499,11 +513,15 @@ function PianoRoll({
             ))}
           </div>
 
-          {/* Canvas */}
+          {/* Canvas — viewport-sized layer, glued to the scrollport by a
+              transform updated in the RAF loop (see below). Rendering only
+              the visible slice keeps every repaint small: a full-width
+              canvas (~18k px at DPR 3 on long sections) both exceeds iOS
+              canvas limits and turns every scroll tick into a huge repaint. */}
           <canvas
             ref={canvasRef}
             className="absolute"
-            style={{ left: 0, top: BAR_LABEL_HEIGHT, touchAction: 'pan-x pan-y' }}
+            style={{ left: 0, top: BAR_LABEL_HEIGHT, touchAction: 'pan-x pan-y', willChange: 'transform' }}
             onPointerDown={handleCanvasPointerDown}
             onPointerUp={handleCanvasPointerUp}
           />

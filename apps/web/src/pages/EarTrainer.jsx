@@ -100,81 +100,83 @@ function buildTimeline(sessionData) {
   return { keyEvents, meterEvents, barStarts, totalBeats, contentEnd }
 }
 
-// ─── Note scheduling (setTimeout-based; proven robust on mobile Safari) ──────
+// ─── Note scheduling (audio-clock look-ahead; jitter-proof on mobile) ────────
 
 function clearTimerList(timerRef) {
   timerRef.current.forEach(t => window.clearTimeout(t))
   timerRef.current = []
 }
 
-function scheduleNotes(notes, tempo, startBeat, timerRef, activeNotesRef) {
-  if (!notes.length) return
-  const secondsPerBeat = 60 / tempo
-  timerRef.current = notes
-    .filter(n => n.start + n.duration > startBeat)
-    .flatMap(note => {
-      const noteId = note.id || `${note.note}-${note.start}`
-      const noteEnd = note.start + note.duration
-      const delayMs = Math.max(0, (note.start - startBeat) * secondsPerBeat * 1000)
-      const durationMs = Math.max(50, (noteEnd - Math.max(note.start, startBeat)) * secondsPerBeat * 1000)
-      const velocity = Math.min(Math.max((note.velocity ?? 0.8) * Math.pow(10, (note.volume ?? 0) / 20), 0), 1)
-      const player = audioEngine.getPlayer(note.instrument)
-      const startTimer = window.setTimeout(() => {
-        if (!player) return
-        player.triggerAttack(note.note, Tone.now(), velocity)
-        activeNotesRef.current.set(noteId, { note: note.note, player })
-      }, delayMs)
-      const endTimer = window.setTimeout(() => {
-        const active = activeNotesRef.current.get(noteId)
-        if (active && activeNotesRef.current.delete(noteId)) {
-          try { active.player?.triggerRelease?.(active.note, Tone.now()) } catch (_) {}
-        }
-      }, delayMs + durationMs)
-      return [startTimer, endTimer]
-    })
-}
+const AUDIO_LOOKAHEAD_S = 0.4   // how far ahead of the audio clock we enqueue
+const AUDIO_TICK_MS = 100       // scheduler wake-up interval
 
 /**
- * Looping variant: re-arms each region iteration ~250ms before its boundary
- * so notes re-trigger on every loop (timers are wall-clock absolute).
+ * Look-ahead scheduler: ONE interval enqueues notes for the next ~0.4 s at
+ * absolute AudioContext times. Timer jitter can't shift note timing — the
+ * trigger times are stamped on the audio clock, so this is stutter-immune
+ * even when the main thread stalls (the old per-note setTimeout approach let
+ * every canvas repaint/buffer copy become audible jitter on mobile).
+ *
+ * pendingRef collects enqueued attacks {player, note, t, tEnd}; on pause/stop
+ * we schedule triggerRelease at each pending attack time (silent cancel) and
+ * releaseAll() the players for sounding notes.
  */
-function scheduleLoopedNotes(notes, regionBeats, tempo, resumeRegionBeat, timerRef, activeNotesRef) {
+function scheduleNotesAudioClock(notes, { regionBeats, tempo, resumeRegionBeat, looping, timerRef, pendingRef }) {
   if (!notes.length || regionBeats <= 0) return
-  const beatToMs = 60000 / tempo
-  const t0 = performance.now()
+  const ctx = Tone.context.rawContext
+  if (!ctx) return
+  const spb = 60 / tempo                       // seconds per region beat
+  const t0 = ctx.currentTime + 0.05            // audio time of region-beat `origin`
   const origin = resumeRegionBeat
-  let iter = 0
+  const R = regionBeats
+  let scheduledUntil = origin                  // region-beat cursor (enqueued up to here)
 
-  const scheduleIteration = () => {
-    const iterBase = iter * regionBeats
-    for (const note of notes) {
-      const absStart = iterBase + note.start
-      const absEnd = iterBase + Math.min(note.start + note.duration, regionBeats)
-      if (absEnd <= origin || absEnd <= absStart) continue
-      const startEff = Math.max(absStart, iter === 0 ? origin : absStart)
-      const noteId = `${note.id || `${note.note}-${note.start}`}-i${iter}`
-      const velocity = Math.min(Math.max((note.velocity ?? 0.8) * Math.pow(10, (note.volume ?? 0) / 20), 0), 1)
-      const player = audioEngine.getPlayer(note.instrument)
-      const startDelay = Math.max(0, t0 + (startEff - origin) * beatToMs - performance.now())
-      const endDelay = Math.max(50, t0 + (absEnd - origin) * beatToMs - performance.now())
-      timerRef.current.push(window.setTimeout(() => {
-        if (!player) return
-        player.triggerAttack(note.note, Tone.now(), velocity)
-        activeNotesRef.current.set(noteId, { note: note.note, player })
-      }, startDelay))
-      timerRef.current.push(window.setTimeout(() => {
-        const active = activeNotesRef.current.get(noteId)
-        if (active && activeNotesRef.current.delete(noteId)) {
-          try { active.player?.triggerRelease?.(active.note, Tone.now()) } catch (_) {}
-        }
-      }, endDelay))
-    }
-    // Arm the next iteration shortly before this one ends
-    const nextBoundary = (iter + 1) * regionBeats
-    const msToNext = t0 + (nextBoundary - origin) * beatToMs - performance.now() - 250
-    timerRef.current.push(window.setTimeout(() => { iter += 1; scheduleIteration() }, Math.max(0, msToNext)))
+  const fire = (n, p) => {
+    const t = t0 + (p - origin) * spb
+    const durSec = Math.max(0.05, Math.min(n.duration, R - n.start) * spb)
+    const player = audioEngine.getPlayer(n.instrument)
+    if (!player) return
+    const velocity = Math.min(Math.max((n.velocity ?? 0.8) * Math.pow(10, (n.volume ?? 0) / 20), 0), 1)
+    try {
+      player.triggerAttack(n.note, t, velocity)
+      player.triggerRelease(n.note, t + durSec)
+      pendingRef.current.push({ player, note: n.note, t, tEnd: t + durSec })
+    } catch (_) {}
   }
-  scheduleIteration()
+
+  const enqueue = () => {
+    const horizonP = origin + (ctx.currentTime + AUDIO_LOOKAHEAD_S - t0) / spb
+    if (horizonP <= scheduledUntil) return
+    for (const n of notes) {
+      if (!looping) {
+        if (n.start >= scheduledUntil && n.start < horizonP && n.start < R) fire(n, n.start)
+      } else {
+        let k = Math.max(0, Math.ceil((scheduledUntil - n.start) / R))
+        let p = k * R + n.start
+        while (p < horizonP) { fire(n, p); k++; p += R }
+      }
+    }
+    scheduledUntil = horizonP
+    // Prune the pending list so it can't grow forever during long loops
+    if (pendingRef.current.length > 400) {
+      const now = ctx.currentTime
+      pendingRef.current = pendingRef.current.filter(e => e.tEnd > now - 1)
+    }
+  }
+
+  enqueue()
+  timerRef.current.push(window.setInterval(enqueue, AUDIO_TICK_MS))
+}
+
+/** Silently cancel enqueued-but-unfired notes + release sounding ones. */
+function cancelPendingAudioNotes(pendingRef) {
+  const now = Tone.context.rawContext?.currentTime ?? 0
+  for (const e of pendingRef.current) {
+    // +20ms so the release lands just after the attack — cancels the note
+    // without an audible blip and without racing a same-timestamp attack.
+    try { e.player.triggerRelease(e.note, Math.max(now, e.t) + 0.02) } catch (_) {}
+  }
+  pendingRef.current = []
 }
 
 /**
@@ -314,6 +316,7 @@ function EarTrainer() {
   const cursorRef = useRef(0)
   const audioPlayerRef = useRef(null)
   const noteTimersRef = useRef([])
+  const notePendingRef = useRef([])   // enqueued-but-unfired audio-clock notes
   const stopTimerRef = useRef(null)
   const activeNotesRef = useRef(new Map())
   const playbackTokenRef = useRef(0)
@@ -396,6 +399,7 @@ function EarTrainer() {
     if (stopTimerRef.current) { window.clearTimeout(stopTimerRef.current); stopTimerRef.current = null }
     if (playbackWatchdogTimerRef.current) { window.clearTimeout(playbackWatchdogTimerRef.current); playbackWatchdogTimerRef.current = null }
     if (!keepRecovery) playbackRecoveryAttemptRef.current = 0
+    cancelPendingAudioNotes(notePendingRef)
     audioEngine.stop()
     releaseActiveNotes(activeNotesRef)
     Object.values(audioEngine.synths).forEach(s => { try { s.releaseAll?.() } catch (_) {} })
@@ -423,6 +427,7 @@ function EarTrainer() {
     pausedBeatRef.current = startBeat + elapsedBeats
     clearTimerList(noteTimersRef)
     if (stopTimerRef.current) { window.clearTimeout(stopTimerRef.current); stopTimerRef.current = null }
+    cancelPendingAudioNotes(notePendingRef)
     audioEngine.pause({ releaseActiveNotes: false })
     audioEngine.stopDrone()
     dronePlayingRef.current = false
@@ -610,11 +615,15 @@ function EarTrainer() {
       else audioEngine.setLoopEnabledBeats(true, regionBeats)
 
       if (midiNotes.length) {
-        if (isLoopingRef.current) {
-          scheduleLoopedNotes(midiNotes, regionBeats, effectiveTempo, resumeRegionBeat, noteTimersRef, activeNotesRef)
-        } else {
-          scheduleNotes(midiNotes, effectiveTempo, resumeRegionBeat, noteTimersRef, activeNotesRef)
-        }
+        notePendingRef.current = []
+        scheduleNotesAudioClock(midiNotes, {
+          regionBeats,
+          tempo: effectiveTempo,
+          resumeRegionBeat,
+          looping: isLoopingRef.current,
+          timerRef: noteTimersRef,
+          pendingRef: notePendingRef,
+        })
       }
 
       const playbackStartedFrom = {

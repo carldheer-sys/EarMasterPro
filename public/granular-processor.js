@@ -53,8 +53,14 @@ class GranularProcessor extends AudioWorkletProcessor {
         case 'play':
           this.speed   = Math.max(0.1, Math.min(2.0, m.speed ?? 1.0))
           this.hopIn   = Math.round(this.hopOut * this.speed)
+          if (m.offsetSamples != null) this.readPos = m.offsetSamples   // seek+play in one msg
           this.playing = true
           this._prime()
+          break
+        case 'seek':
+          this.readPos = m.offsetSamples ?? this.readPos
+          this.outPos  = 0
+          if (this.ring) for (const r of this.ring) r.fill(0)
           break
         case 'stop':
           this.playing = false
@@ -115,6 +121,7 @@ class GranularProcessor extends AudioWorkletProcessor {
   //   - ring[hop..gs-1] = head of grain at startPos, windowed
   // which is exactly the correct initial OLA state.
   _prime () {
+    if (!this.ring || !this.bufs.length) { this.playing = false; return }
     const startPos = this.readPos
     // Step readPos back by one hopIn so first _advance() lands on startPos
     this.readPos = startPos - this.hopIn

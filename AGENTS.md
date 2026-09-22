@@ -42,6 +42,20 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   ArrayBuffers are cached module-level (`sampleArrayBufferCache`) and re-decoded
   per context epoch.
 - `window.audioEngine` is exposed for CDP debugging.
+- **`Tone.context.rawContext` is a `standardized-audio-context` WRAPPER, not a
+  `BaseAudioContext`** — `new AudioWorkletNode(wrapper)` throws. Unwrap via
+  `._nativeContext` for native-API construction (see `GranularPlayer`);
+  wrapped nodes connect via `wrappedNode._nativeAudioNode`.
+- **Note scheduling is audio-clock look-ahead** (`scheduleNotesAudioClock` in
+  EarTrainer): one 100ms interval enqueues notes ~0.4s ahead at absolute
+  AudioContext times — never schedule notes with per-note `setTimeout`
+  (timer jitter = audible stutter on mobile).
+- **PianoRoll canvas is viewport-sized** and follows scroll via a transform in
+  the RAF loop — never size it to `gridWidth × dpr` (exceeds iOS canvas limits
+  and repaints the whole grid per scroll tick).
+- `GranularPlayer` reuses its AudioWorkletNode across starts — buffer data is
+  posted only when the AudioBuffer object changes. `catalog.js` caches MP3
+  bytes + decoded buffers per context.
 - **Instrument maps**: `Tonejs-Instruments.js` — an instrument listed in `list`
   without a note map silently falls back to synth (trumpet bug). Keep maps for
   every listed instrument.

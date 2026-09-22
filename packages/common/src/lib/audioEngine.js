@@ -81,7 +81,7 @@ export function isContextBlocked(state) {
 export function swapToneContext(latencyHint = 'playback') {
   const prevRaw = Tone.context?.rawContext
   Tone.setContext(new Tone.Context({ latencyHint }))
-  Tone.context.lookAhead = 0.05
+  Tone.context.lookAhead = 0.1
   if (prevRaw && prevRaw !== Tone.context.rawContext && prevRaw.state !== 'closed') {
     try { prevRaw.close() } catch (_) {}
   }
@@ -242,7 +242,7 @@ class AudioEngine {
         swapToneContext(latencyHint)
       }
 
-      Tone.context.lookAhead = 0.05
+      Tone.context.lookAhead = 0.1
 
       // MIDI-only gain node → mastering FX chain → Destination.
       //   midiGain → compressor → limiter → destination
@@ -741,17 +741,9 @@ class AudioEngine {
           time,
           finalVelocity
         )
-        
-        // Track active note for cleanup
-        const activeNote = { instrument: noteData.instrument, note: noteData.note }
-        this.activeNotes.push(activeNote)
-        
-        // Auto-dispose after note finishes
-        const durationSeconds = durationBeats * secondsPerBeat
-        setTimeout(() => {
-          const index = this.activeNotes.indexOf(activeNote)
-          if (index > -1) this.activeNotes.splice(index, 1)
-        }, durationSeconds * 1000)
+        // Track active note for cleanup (released wholesale by
+        // killAllActiveNotes — no per-note setTimeout, which was pure churn)
+        this.activeNotes.push({ instrument: noteData.instrument, note: noteData.note })
       }, startTick + "i")
       
       this.scheduledEvents.push({ id: eventId, tick: startTick })
