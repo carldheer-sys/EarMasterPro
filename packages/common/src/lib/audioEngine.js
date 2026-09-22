@@ -166,19 +166,10 @@ class AudioEngine {
       }
       
       const normalizedVelocity = Math.max(0, Math.min(1, velocity / 127))
-      
-      if (instrument === 'synth') {
-        const synth = this.synths['synth']
-        if (synth) {
-          synth.triggerAttack(noteName, Tone.now(), normalizedVelocity)
-          this.liveMidiNotes[noteId] = { synth, instrument }
-        }
-      } else {
-        const sampler = this.samplers[instrument] || this.samplers['piano']
-        if (sampler) {
-          sampler.triggerAttack(noteName, Tone.now(), normalizedVelocity)
-          this.liveMidiNotes[noteId] = { sampler, instrument }
-        }
+      const player = this.getPlayer(instrument)
+      if (player) {
+        player.triggerAttack(noteName, Tone.now(), normalizedVelocity)
+        this.liveMidiNotes[noteId] = { player, instrument }
       }
     } catch (error) {
       console.warn('Failed to start note:', error)
@@ -196,13 +187,9 @@ class AudioEngine {
     try {
       const noteId = `${noteName}_${instrument}`
       const liveNote = this.liveMidiNotes[noteId]
-      
+
       if (liveNote) {
-        if (liveNote.synth) {
-          liveNote.synth.triggerRelease(Tone.now())
-        } else if (liveNote.sampler) {
-          liveNote.sampler.triggerRelease(noteName, Tone.now())
-        }
+        try { liveNote.player.triggerRelease(noteName, Tone.now()) } catch (_) {}
         delete this.liveMidiNotes[noteId]
       }
     } catch (error) {
@@ -215,15 +202,10 @@ class AudioEngine {
    */
   stopAllLiveNotes() {
     Object.keys(this.liveMidiNotes).forEach(noteId => {
-      const liveNote = this.liveMidiNotes[noteId]
       try {
-        if (liveNote.synth) {
-          liveNote.synth.triggerRelease(Tone.now())
-        } else if (liveNote.sampler) {
-          // For samplers, we need to release all active voices
-          liveNote.sampler.releaseAll(Tone.now())
-        }
-      } catch (error) {
+        const liveNote = this.liveMidiNotes[noteId]
+        liveNote?.player?.triggerRelease?.(noteId.split('_')[0], Tone.now())
+      } catch (_) {
         // Ignore errors from already released notes
       }
     })
@@ -589,6 +571,7 @@ class AudioEngine {
     this.stopPositionTracking()
     this.stopLookAheadScheduler()
     try { this.killAllActiveNotes() } catch (_) {}
+    try { this.stopAllLiveNotes() } catch (_) {}
     try { this.stopDrone() } catch (_) {}
     try { Tone.Transport.stop() } catch (_) {}
     try { Tone.Transport.position = 0 } catch (_) {}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Tone from 'tone'
-import { BookOpen, Eye, EyeOff, FileText, Hash, Headphones, Loader2, Lock, Moon, Pause, Play, Repeat, Settings, Square, Sun, Type, Minus, Plus } from 'lucide-react'
+import { BookOpen, Eye, EyeOff, FileText, Hash, Headphones, Keyboard, Loader2, Lock, Moon, Pause, Play, Repeat, Settings, Square, Sun, Type, Minus, Plus } from 'lucide-react'
 import audioEngine, { INSTRUMENT_CONFIGS, isContextBlocked, resumeWithTimeout, swapToneContext } from '@common/lib/audioEngine'
 import { GranularPlayer } from '@common/lib/granularPlayer'
 import {
@@ -17,6 +17,7 @@ import PianoRoll from '@/components/PianoRoll'
 import CatalogSheet from '@/components/CatalogSheet'
 import SettingsSheet from '@/components/SettingsSheet'
 import TranscriptionSheet from '@/components/TranscriptionSheet'
+import KeyboardPanel from '@/components/KeyboardPanel'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -269,6 +270,8 @@ function EarTrainer() {
   const [showResumeOverlay, setShowResumeOverlay] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [transcriptionOpen, setTranscriptionOpen] = useState(false)
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
+  const [kbDroneOn, setKbDroneOn] = useState(false)
   const [loadingInstruments, setLoadingInstruments] = useState(() => new Set())
   // Bumped whenever the AudioContext is rebuilt — effects that hold
   // context-bound resources (the decoded section audio) re-run on change.
@@ -401,6 +404,7 @@ function EarTrainer() {
     if (!keepRecovery) playbackRecoveryAttemptRef.current = 0
     cancelPendingAudioNotes(notePendingRef)
     audioEngine.stop()
+    setKbDroneOn(false)
     releaseActiveNotes(activeNotesRef)
     Object.values(audioEngine.synths).forEach(s => { try { s.releaseAll?.() } catch (_) {} })
     Object.values(audioEngine.samplers).forEach(s => { try { s.releaseAll?.() } catch (_) {} })
@@ -430,6 +434,7 @@ function EarTrainer() {
     cancelPendingAudioNotes(notePendingRef)
     audioEngine.pause({ releaseActiveNotes: false })
     audioEngine.stopDrone()
+    setKbDroneOn(false)
     dronePlayingRef.current = false
     releaseActiveNotes(activeNotesRef)
     audioPlayerRef.current?.stop()
@@ -954,6 +959,40 @@ function EarTrainer() {
     }
   }, [ensureFreshAudioContext, ensureInstrument, mode])
 
+  // ── Transcription keyboard ───────────────────────────────────────────────
+
+  const kbNoteOn = useCallback((noteName, velocity = 96) => {
+    audioEngine.startNote(noteName, velocity, userSettingsRef.current.melodyInstrument)
+  }, [])
+
+  const kbNoteOff = useCallback((noteName) => {
+    audioEngine.stopNote(noteName, userSettingsRef.current.melodyInstrument)
+  }, [])
+
+  const toggleKbDrone = useCallback(() => {
+    if (kbDroneOn) {
+      audioEngine.stopDrone()
+      setKbDroneOn(false)
+    } else {
+      audioEngine.scheduleDroneNotes(settings.key, 4, userSettingsRef.current.droneVolume)
+      setKbDroneOn(true)
+    }
+  }, [kbDroneOn, settings.key])
+
+  // On open: warm the context + melody instrument so the first tap sounds.
+  // On close: release held notes + the drone.
+  useEffect(() => {
+    if (!keyboardOpen) return
+    ensureFreshAudioContext()
+      .then(() => ensureInstrument(userSettingsRef.current.melodyInstrument))
+      .catch(() => {})
+    return () => {
+      audioEngine.stopAllLiveNotes()
+      audioEngine.stopDrone()
+      setKbDroneOn(false)
+    }
+  }, [keyboardOpen, ensureFreshAudioContext, ensureInstrument])
+
   const handleResumeFromOverlay = useCallback(async () => {
     setShowResumeOverlay(false)
     setAudioPreparing(true)
@@ -1020,7 +1059,7 @@ function EarTrainer() {
 
   return (
     <main className={`safe-top safe-bottom min-h-full ${bg}`}>
-      <div className="mx-auto flex min-h-full max-w-5xl flex-col gap-3 px-3 pb-6 pt-3 sm:px-5">
+      <div className={`mx-auto flex min-h-full max-w-5xl flex-col gap-3 px-3 pt-3 sm:px-5 ${keyboardOpen ? 'pb-44' : 'pb-6'}`}>
 
         {/* ── Header ── */}
         <header className={`rounded-3xl border p-4 shadow-xl backdrop-blur-xl ${card}`}>
@@ -1052,6 +1091,12 @@ function EarTrainer() {
                   <FileText className="h-4 w-4" />
                 </button>
               )}
+              <button onClick={() => setKeyboardOpen(v => !v)} title="Transcription keyboard"
+                className={`rounded-full p-2.5 transition active:scale-95 ${keyboardOpen
+                  ? 'bg-sky-400/90 text-slate-950'
+                  : isDark ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-200 hover:bg-slate-300'}`}>
+                <Keyboard className="h-4 w-4" />
+              </button>
               <button onClick={() => setSettingsOpen(true)} title="Settings"
                 className={`rounded-full p-2.5 transition active:scale-95 ${isDark ? 'bg-white/10 hover:bg-white/15' : 'bg-slate-200 hover:bg-slate-300'}`}>
                 <Settings className="h-4 w-4" />
@@ -1230,6 +1275,19 @@ function EarTrainer() {
         isDark={isDark}
         notation={notation}
         onNotationChange={setNotation}
+      />
+
+      {/* ── Transcription keyboard (bottom dock) ── */}
+      <KeyboardPanel
+        open={keyboardOpen}
+        onClose={() => setKeyboardOpen(false)}
+        isDark={isDark}
+        tonic={settings.key}
+        instrument={userSettings.melodyInstrument}
+        droneOn={kbDroneOn}
+        onToggleDrone={toggleKbDrone}
+        onNoteOn={kbNoteOn}
+        onNoteOff={kbNoteOff}
       />
 
       {/* ── Resume-audio overlay ── */}
