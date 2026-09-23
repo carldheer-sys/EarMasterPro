@@ -14,6 +14,10 @@ function CatalogSheet({ open, onClose, catalog, selectedId, onSelect, isDark }) 
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', onKey)
     document.body.style.overflow = 'hidden'
+    // Open with the current song's card at the top of the list (clamped at
+    // the scroll end, so the last songs can't overscroll past the bottom).
+    panelRef.current?.querySelector('[data-current="true"]')
+      ?.scrollIntoView({ block: 'start' })
     return () => {
       document.removeEventListener('keydown', onKey)
       document.body.style.overflow = ''
@@ -51,7 +55,7 @@ function CatalogSheet({ open, onClose, catalog, selectedId, onSelect, isDark }) 
             <div key={artist.name} className="mb-6">
               <h3 className={`mb-2 px-1 text-xs font-bold uppercase tracking-[0.2em] ${isDark ? 'text-sky-300/80' : 'text-sky-700/80'}`}>{artist.name}</h3>
               {artist.songs.map(song => (
-                <div key={song.folder} className={`mb-3 overflow-hidden rounded-2xl border ${isDark ? 'border-white/10 bg-white/[0.04]' : 'border-slate-200 bg-slate-50'}`}>
+                <div key={song.folder} data-current={song.sections.some(s => s.id === selectedId) || undefined} className={`mb-3 overflow-hidden rounded-2xl border ${isDark ? 'border-white/10 bg-white/[0.04]' : 'border-slate-200 bg-slate-50'}`}>
                   <div className={`px-4 py-2.5 text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>{song.title}</div>
                   <div className={`grid gap-1 px-2 pb-2 ${song.sections.length > 1 ? 'sm:grid-cols-2' : ''}`}>
                     {song.sections.map(section => {

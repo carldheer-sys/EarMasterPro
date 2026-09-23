@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-23T17:25:00.498Z",
+  "generatedAt": "2026-09-23T19:49:40.278Z",
   "artists": [
     {
       "name": "Alex Warren",
@@ -51,6 +51,182 @@
                 "melody": "/catalog/Alex%20Warren%20-%20Ordinary/chorus/melody.mid",
                 "chords": "/catalog/Alex%20Warren%20-%20Ordinary/chorus/chords.mid",
                 "audio": "/catalog/Alex%20Warren%20-%20Ordinary/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Bo Burnham",
+      "songs": [
+        {
+          "title": "All Eyes On Me",
+          "folder": "Bo Burnham - All Eyes On Me",
+          "transcription": "/catalog/Bo%20Burnham%20-%20All%20Eyes%20On%20Me/all-eyes-on-me-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Bo Burnham - All Eyes On Me/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "D#",
+              "keyMode": "Minor",
+              "tempo": 118,
+              "internalBpm": 118,
+              "timeSignature": "4/4",
+              "bars": 9,
+              "melodyNotes": 45,
+              "chordNotes": 27,
+              "assets": {
+                "session": "/catalog/Bo%20Burnham%20-%20All%20Eyes%20On%20Me/verse/session.eartrainer.json",
+                "melody": "/catalog/Bo%20Burnham%20-%20All%20Eyes%20On%20Me/verse/melody.mid",
+                "chords": "/catalog/Bo%20Burnham%20-%20All%20Eyes%20On%20Me/verse/chords.mid",
+                "audio": "/catalog/Bo%20Burnham%20-%20All%20Eyes%20On%20Me/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Bo Burnham - All Eyes On Me/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "F#",
+              "keyMode": "Major",
+              "tempo": 120,
+              "internalBpm": 120,
+              "timeSignature": "4/4",
+              "bars": 8,
+              "melodyNotes": 40,
+              "chordNotes": 24,
+              "assets": {
+                "session": "/catalog/Bo%20Burnham%20-%20All%20Eyes%20On%20Me/chorus/session.eartrainer.json",
+                "melody": "/catalog/Bo%20Burnham%20-%20All%20Eyes%20On%20Me/chorus/melody.mid",
+                "chords": "/catalog/Bo%20Burnham%20-%20All%20Eyes%20On%20Me/chorus/chords.mid",
+                "audio": "/catalog/Bo%20Burnham%20-%20All%20Eyes%20On%20Me/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "Look Who's Inside Again",
+          "folder": "Bo Burnham - Look Who's Inside Again",
+          "transcription": "/catalog/Bo%20Burnham%20-%20Look%20Who's%20Inside%20Again/look-whos-inside-again-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Bo Burnham - Look Who's Inside Again/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "D",
+              "keyMode": "Major",
+              "tempo": 161,
+              "internalBpm": 161,
+              "timeSignature": "3/4",
+              "bars": 24,
+              "melodyNotes": 55,
+              "chordNotes": 72,
+              "assets": {
+                "session": "/catalog/Bo%20Burnham%20-%20Look%20Who's%20Inside%20Again/verse/session.eartrainer.json",
+                "melody": "/catalog/Bo%20Burnham%20-%20Look%20Who's%20Inside%20Again/verse/melody.mid",
+                "chords": "/catalog/Bo%20Burnham%20-%20Look%20Who's%20Inside%20Again/verse/chords.mid",
+                "audio": "/catalog/Bo%20Burnham%20-%20Look%20Who's%20Inside%20Again/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Bo Burnham - Look Who's Inside Again/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "D",
+              "keyMode": "Major",
+              "tempo": 160,
+              "internalBpm": 160,
+              "timeSignature": "3/4",
+              "bars": 19,
+              "melodyNotes": 40,
+              "chordNotes": 36,
+              "assets": {
+                "session": "/catalog/Bo%20Burnham%20-%20Look%20Who's%20Inside%20Again/chorus/session.eartrainer.json",
+                "melody": "/catalog/Bo%20Burnham%20-%20Look%20Who's%20Inside%20Again/chorus/melody.mid",
+                "chords": "/catalog/Bo%20Burnham%20-%20Look%20Who's%20Inside%20Again/chorus/chords.mid",
+                "audio": "/catalog/Bo%20Burnham%20-%20Look%20Who's%20Inside%20Again/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "That Funny Feeling",
+          "folder": "Bo Burnham - That Funny Feeling",
+          "transcription": "/catalog/Bo%20Burnham%20-%20That%20Funny%20Feeling/that-funny-feeling-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Bo Burnham - That Funny Feeling/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "E",
+              "keyMode": "Major",
+              "tempo": 75,
+              "internalBpm": 75,
+              "timeSignature": "4/4",
+              "bars": 10,
+              "melodyNotes": 55,
+              "chordNotes": 60,
+              "assets": {
+                "session": "/catalog/Bo%20Burnham%20-%20That%20Funny%20Feeling/verse/session.eartrainer.json",
+                "melody": "/catalog/Bo%20Burnham%20-%20That%20Funny%20Feeling/verse/melody.mid",
+                "chords": "/catalog/Bo%20Burnham%20-%20That%20Funny%20Feeling/verse/chords.mid",
+                "audio": "/catalog/Bo%20Burnham%20-%20That%20Funny%20Feeling/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Bo Burnham - That Funny Feeling/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "E",
+              "keyMode": "Major",
+              "tempo": 75,
+              "internalBpm": 75,
+              "timeSignature": "4/4",
+              "bars": 7,
+              "melodyNotes": 39,
+              "chordNotes": 39,
+              "assets": {
+                "session": "/catalog/Bo%20Burnham%20-%20That%20Funny%20Feeling/chorus/session.eartrainer.json",
+                "melody": "/catalog/Bo%20Burnham%20-%20That%20Funny%20Feeling/chorus/melody.mid",
+                "chords": "/catalog/Bo%20Burnham%20-%20That%20Funny%20Feeling/chorus/chords.mid",
+                "audio": "/catalog/Bo%20Burnham%20-%20That%20Funny%20Feeling/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,

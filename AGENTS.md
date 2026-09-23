@@ -25,6 +25,11 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
 - Session windows can differ from Hooktheory `keyFrames` (pickup extension,
   trims) — effective window lives in `song-info.json` (`visibleWindow`,
   `windowStart`/`windowEnd`). Exporter: `Music_Catalog/scripts&skills/hooktheory_to_earmaster.py`.
+- **`keyMode` supports all church modes** (`Major`, `Minor`, `Dorian`,
+  `Phrygian`, `Lydian`, `Mixolydian`, `Locrian`). There is exactly ONE
+  `normalizeKeyMode` — `packages/common/src/lib/midiUtils.js`, exported.
+  Never reimplement it locally: a stale copy in EarTrainer collapsed
+  `Dorian`→`Major` and wrongly red-flagged diatonic notes.
 
 ## Audio engine (`packages/common/src/lib/audioEngine.js`)
 

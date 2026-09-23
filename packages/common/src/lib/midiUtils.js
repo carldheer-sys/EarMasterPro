@@ -25,7 +25,7 @@ export function normalizeKeyName(key) {
 
 const KNOWN_MODES = new Set(['major', 'minor', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian'])
 
-function normalizeKeyMode(mode) {
+export function normalizeKeyMode(mode) {
   const m = String(mode || 'major').toLowerCase()
   return KNOWN_MODES.has(m) ? m.charAt(0).toUpperCase() + m.slice(1) : 'Major'
 }
