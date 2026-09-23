@@ -73,4 +73,27 @@ describe('computeScaleDegrees — diatonic flags', () => {
     expect(extractDegrees(out)).toEqual(['1', 'b2', '2', 'b3', '3', '4', '#4'])
     expect(extractDiatonic(out)).toEqual([true, false, true, true, false, true, false])
   })
+
+  it('flags modal notes diatonic in G dorian', () => {
+    // G dorian: G A Bb C D E F — Bb (A#3) and F are diatonic, G# is not.
+    const out = computeScaleDegrees(createNotes(['G3', 'A3', 'A#3', 'C4', 'D4', 'E4', 'F4', 'G#3']), 'G', 'Dorian')
+    expect(extractDegrees(out)).toEqual(['1', '2', 'b3', '4', '5', '6', 'b7', 'b2'])
+    expect(extractDiatonic(out)).toEqual([true, true, true, true, true, true, true, false])
+  })
+
+  it('flags modal notes diatonic in F lydian and D mixolydian', () => {
+    // F lydian: F G A B C D E — B is diatonic (unlike F major's Bb).
+    const lydian = computeScaleDegrees(createNotes(['F4', 'B4', 'A#4']), 'F', 'Lydian')
+    expect(extractDegrees(lydian)).toEqual(['1', '#4', '4'])
+    expect(extractDiatonic(lydian)).toEqual([true, true, false])
+    // D mixolydian: D E F# G A B C — C natural is diatonic (unlike D major's C#).
+    const mixo = computeScaleDegrees(createNotes(['D4', 'C4', 'C#4']), 'D', 'Mixolydian')
+    expect(extractDegrees(mixo)).toEqual(['1', 'b7', '7'])
+    expect(extractDiatonic(mixo)).toEqual([true, true, false])
+  })
+
+  it('unknown modes fall back to major', () => {
+    const out = computeScaleDegrees(createNotes(['G4', 'F4', 'F#4']), 'G', 'Whatever')
+    expect(extractDiatonic(out)).toEqual([true, false, true])
+  })
 })

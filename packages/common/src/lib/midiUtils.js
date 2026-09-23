@@ -23,8 +23,11 @@ export function normalizeKeyName(key) {
   return FLAT_TO_SHARP_KEYS[key] || key || 'C'
 }
 
+const KNOWN_MODES = new Set(['major', 'minor', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian'])
+
 function normalizeKeyMode(mode) {
-  return String(mode || 'major').toLowerCase() === 'minor' ? 'Minor' : 'Major'
+  const m = String(mode || 'major').toLowerCase()
+  return KNOWN_MODES.has(m) ? m.charAt(0).toUpperCase() + m.slice(1) : 'Major'
 }
 
 export const DEFAULT_TIME_SIGNATURE = { numerator: 4, denominator: 4 }

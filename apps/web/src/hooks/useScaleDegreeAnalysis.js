@@ -37,14 +37,16 @@ const degreeMap = {
   11: '7'      // Major 7th
 }
 
-// Determine if a degree is diatonic in major scale
-const isDiatonicMajor = (chromaticDistance) => {
-  return [0, 2, 4, 5, 7, 9, 11].includes(chromaticDistance)
-}
-
-// Determine if a degree is diatonic in minor scale (natural minor)
-const isDiatonicMinor = (chromaticDistance) => {
-  return [0, 2, 3, 5, 7, 8, 10].includes(chromaticDistance)
+// Diatonic pitch-class sets per mode (church modes included — e.g. The Fate
+// of Ophelia's verse is in G dorian, where b3/b7 are diatonic, not red).
+const DIATONIC = {
+  Major: [0, 2, 4, 5, 7, 9, 11],
+  Minor: [0, 2, 3, 5, 7, 8, 10],
+  Dorian: [0, 2, 3, 5, 7, 9, 10],
+  Phrygian: [0, 1, 3, 5, 7, 8, 10],
+  Lydian: [0, 2, 4, 6, 7, 9, 11],
+  Mixolydian: [0, 2, 4, 5, 7, 9, 10],
+  Locrian: [0, 1, 3, 5, 6, 8, 10],
 }
 
 /**
@@ -87,10 +89,8 @@ export function computeScaleDegrees(notes, tonic, mode = 'Major', keyEvents = nu
     // Map to scale degree label
     const scaleDegree = degreeMap[chromaticDistance]
 
-    // Check if diatonic
-    const isDiatonic = noteMode === 'Major'
-      ? isDiatonicMajor(chromaticDistance)
-      : isDiatonicMinor(chromaticDistance)
+    // Check if diatonic (mode-aware; unknown modes fall back to Major)
+    const isDiatonic = (DIATONIC[noteMode] || DIATONIC.Major).includes(chromaticDistance)
 
     return {
       ...note,

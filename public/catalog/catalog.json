@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-22T18:45:42.922Z",
+  "generatedAt": "2026-09-23T17:25:00.498Z",
   "artists": [
     {
       "name": "Alex Warren",
@@ -166,6 +166,63 @@
       "name": "Ghost",
       "songs": [
         {
+          "title": "Mary on a Cross",
+          "folder": "Ghost - Mary on a Cross",
+          "transcription": "/catalog/Ghost%20-%20Mary%20on%20a%20Cross/mary-on-a-cross-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Ghost - Mary on a Cross/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "B",
+              "keyMode": "Major",
+              "tempo": 130,
+              "internalBpm": 130,
+              "timeSignature": "4/4",
+              "bars": 32,
+              "melodyNotes": 128,
+              "chordNotes": 87,
+              "assets": {
+                "session": "/catalog/Ghost%20-%20Mary%20on%20a%20Cross/verse/session.eartrainer.json",
+                "melody": "/catalog/Ghost%20-%20Mary%20on%20a%20Cross/verse/melody.mid",
+                "chords": "/catalog/Ghost%20-%20Mary%20on%20a%20Cross/verse/chords.mid",
+                "audio": "/catalog/Ghost%20-%20Mary%20on%20a%20Cross/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Ghost - Mary on a Cross/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "B",
+              "keyMode": "Major",
+              "tempo": 130,
+              "internalBpm": 130,
+              "timeSignature": "4/4",
+              "bars": 16,
+              "melodyNotes": 62,
+              "chordNotes": 51,
+              "assets": {
+                "session": "/catalog/Ghost%20-%20Mary%20on%20a%20Cross/chorus/session.eartrainer.json",
+                "melody": "/catalog/Ghost%20-%20Mary%20on%20a%20Cross/chorus/melody.mid",
+                "chords": "/catalog/Ghost%20-%20Mary%20on%20a%20Cross/chorus/chords.mid",
+                "audio": "/catalog/Ghost%20-%20Mary%20on%20a%20Cross/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
           "title": "The Future is a Foreign Land",
           "folder": "Ghost - The Future is a Foreign Land",
           "transcription": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/the-future-is-a-foreign-land-verse-chorus-google-docs.html",
@@ -212,6 +269,68 @@
                 "melody": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/melody.mid",
                 "chords": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/chords.mid",
                 "audio": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Taylor Swift",
+      "songs": [
+        {
+          "title": "The Fate of Ophelia",
+          "folder": "Taylor Swift - The Fate of Ophelia",
+          "transcription": "/catalog/Taylor%20Swift%20-%20The%20Fate%20of%20Ophelia/the-fate-of-ophelia-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Taylor Swift - The Fate of Ophelia/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "G",
+              "keyMode": "Dorian",
+              "tempo": 124,
+              "internalBpm": 124,
+              "timeSignature": "4/4",
+              "bars": 10,
+              "melodyNotes": 41,
+              "chordNotes": 24,
+              "assets": {
+                "session": "/catalog/Taylor%20Swift%20-%20The%20Fate%20of%20Ophelia/verse/session.eartrainer.json",
+                "melody": "/catalog/Taylor%20Swift%20-%20The%20Fate%20of%20Ophelia/verse/melody.mid",
+                "chords": "/catalog/Taylor%20Swift%20-%20The%20Fate%20of%20Ophelia/verse/chords.mid",
+                "audio": "/catalog/Taylor%20Swift%20-%20The%20Fate%20of%20Ophelia/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Taylor Swift - The Fate of Ophelia/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "F",
+              "keyMode": "Major",
+              "tempo": 124,
+              "internalBpm": 124,
+              "timeSignature": "4/4",
+              "bars": 21,
+              "melodyNotes": 108,
+              "chordNotes": 51,
+              "assets": {
+                "session": "/catalog/Taylor%20Swift%20-%20The%20Fate%20of%20Ophelia/chorus/session.eartrainer.json",
+                "melody": "/catalog/Taylor%20Swift%20-%20The%20Fate%20of%20Ophelia/chorus/melody.mid",
+                "chords": "/catalog/Taylor%20Swift%20-%20The%20Fate%20of%20Ophelia/chorus/chords.mid",
+                "audio": "/catalog/Taylor%20Swift%20-%20The%20Fate%20of%20Ophelia/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
