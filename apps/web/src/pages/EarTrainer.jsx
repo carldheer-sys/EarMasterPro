@@ -366,7 +366,7 @@ function EarTrainer() {
   }, [])
 
   const ensureFreshAudioContext = useCallback(async ({ force = false, latencyHint = 'playback', start = true } = {}) => {
-    try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
+    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
     const rawBefore = Tone.context.rawContext
     const isClosed = Tone.context.state === 'closed' || rawBefore?.state === 'closed'
     if (force && isClosed) {
@@ -418,6 +418,7 @@ function EarTrainer() {
       pausedBeatRef.current = 0
       cursorRef.current = 0
     }
+    try { if (navigator.mediaSession) navigator.mediaSession.playbackState = 'none' } catch (_) {}
     setPlaybackState('stopped')
   }, [])
 
@@ -517,7 +518,7 @@ function EarTrainer() {
       setAudioPreparing(true)
       setError('')
       // Unlock audio (requires user gesture on mobile)
-      try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
+      try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
       await ensureFreshAudioContext({ latencyHint: playbackRecoveryAttemptRef.current >= 2 ? 'interactive' : 'playback' })
 
       const resumeFromPause = playbackState === 'paused' || (playbackState === 'stopped' && seekBeatRef.current > 0)
@@ -1215,6 +1216,7 @@ function EarTrainer() {
             onZoom={handleRollZoom}
             cursorRef={cursorRef}
             isPlaying={playbackState === 'playing'}
+            playbackState={playbackState}
             zoom={zoom}
             isDark={isDark}
             showAnswers={showAnswers}

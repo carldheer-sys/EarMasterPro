@@ -209,6 +209,7 @@ function PianoRoll({
   onZoom,               // (deltaY) — ctrl/cmd + wheel
   cursorRef,          // ref holding playhead fraction 0..1 of the whole section
   isPlaying = false,
+  playbackState = 'stopped', // 'playing' | 'paused' | 'stopped'
   zoom = 1,
   isDark = true,
   showAnswers = true,
@@ -336,6 +337,15 @@ function PianoRoll({
     el.scrollLeft = Math.min(Math.max(0, (scrollLeftPxRef.current / prev) * beatWidth), max)
   }, [beatWidth])
 
+  // Snap back to the section start when playback stops; pause keeps the view.
+  useEffect(() => {
+    if (playbackState !== 'stopped') return
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollLeft = 0
+    scrollLeftPxRef.current = 0
+  }, [playbackState])
+
   // ── Playhead + canvas anchoring + auto-scroll (RAF — no re-render) ──
   useEffect(() => {
     let raf
@@ -346,11 +356,16 @@ function PianoRoll({
       // Clamp so the canvas rides with the DOM grid through any residual
       // rubber-band overscroll instead of pinning to the scrollport.
       const sl = el ? Math.min(Math.max(0, el.scrollLeft), Math.max(0, el.scrollWidth - el.clientWidth)) : 0
+      // Snap the canvas transform to whole device pixels — a fractional
+      // translate makes the compositor resample the bitmap and blurs every
+      // grid line and label. The draw offset snaps identically, so the canvas
+      // stays exactly aligned with the DOM grid.
+      const slCanvas = Math.round(sl * (window.devicePixelRatio || 1)) / (window.devicePixelRatio || 1)
       // Keep the viewport-sized canvas glued to the scrollport (transform =
       // compositor-only, no paint). +44 accounts for the sticky label column.
-      if (canvasRef.current && sl !== lastSl) {
-        canvasRef.current.style.transform = `translateX(${sl}px)`
-        lastSl = sl
+      if (canvasRef.current && slCanvas !== lastSl) {
+        canvasRef.current.style.transform = `translateX(${slCanvas}px)`
+        lastSl = slCanvas
       }
       const frac = cursorRef?.current ?? 0
       const px = frac * gridWidth
@@ -379,7 +394,9 @@ function PianoRoll({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx._cellH = cellH
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    // Cap 3: the viewport-sized canvas stays small (~1–2 Mpx) even at dpr 3 —
+    // the old cap of 2 dated from the full-width canvas that hit iOS limits.
+    const dpr = Math.min(window.devicePixelRatio || 1, 3)
     const cssW = Math.min(Math.max(0, viewportWidth - 44), gridWidth)
     if (cssW <= 0) return
     const bw = Math.round(cssW * dpr)
@@ -388,11 +405,15 @@ function PianoRoll({
     if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh }
     canvas.style.width = `${cssW}px`
     canvas.style.height = `${gridHeight}px`
+    // Snap the slice offset to whole device pixels (matching the canvas
+    // element's snapped translateX in the RAF tick) so integer grid coords
+    // land on exact device pixels — fractional offsets blur everything.
+    const slDraw = Math.round(scrollLeft * dpr)
     // setTransform: dpr scale + viewport offset in one atomic reset
-    ctx.setTransform(dpr, 0, 0, dpr, -scrollLeft * dpr, 0)
+    ctx.setTransform(dpr, 0, 0, dpr, -slDraw, 0)
 
-    const vpStart = scrollLeft / beatWidth
-    const vpEnd = (scrollLeft + cssW) / beatWidth
+    const vpStart = (slDraw / dpr) / beatWidth
+    const vpEnd = ((slDraw / dpr) + cssW) / beatWidth
 
     renderGrid(ctx, { width: gridWidth, height: gridHeight, beatWidth, barStarts: effectiveBarStarts, totalBeats, lowestNote, highestNote, dpr, beatsPerDivision, isDark })
     renderNotes(ctx, { notes: displayNotes, beatWidth, cellH, lowestNote, highestNote, viewportStartBeat: vpStart, viewportEndBeat: vpEnd, dpr, showAnswers, notation, isDark })

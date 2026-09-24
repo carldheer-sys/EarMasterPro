@@ -88,7 +88,7 @@ function CatalogSheet({ open, onClose, catalog, selectedId, onSelect, isDark }) 
           <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-3">
             {catalog.artists.map(artist => (
               <div key={artist.name} className="mb-4">
-                <h3 className={`sticky top-0 z-10 -mx-4 mb-1.5 px-5 py-1.5 text-[11px] font-bold uppercase tracking-[0.2em] backdrop-blur-xl ${isDark ? 'bg-slate-950/90 text-sky-300/80' : 'bg-white/90 text-sky-700/80'}`}>{artist.name}</h3>
+                <h3 className={`sticky top-0 z-10 -mx-4 mb-1.5 px-5 pb-1.5 pt-1 text-[11px] font-bold uppercase tracking-[0.2em] backdrop-blur-xl ${isDark ? 'bg-slate-950/90 text-sky-300/80' : 'bg-white/90 text-sky-700/80'}`}>{artist.name}</h3>
                 {artist.songs.map(song => (
                   <div key={song.folder} data-current={song.sections.some(s => s.id === selectedId) || undefined} className={`mb-2 overflow-hidden rounded-xl border ${isDark ? 'border-white/10 bg-white/[0.04]' : 'border-slate-200 bg-slate-50'}`}>
                     <div className={`px-3 py-1.5 text-[13px] font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>{song.title}</div>

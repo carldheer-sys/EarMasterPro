@@ -291,7 +291,9 @@ class AudioEngine {
     let contextChanged = false
 
     try {
-      if (navigator.audioSession) navigator.audioSession.type = 'playback'
+      // 'ambient' keeps the AudioContext out of iOS Now Playing (lock-screen
+      // banner) — only 'playback'/'play-and-record' sessions are eligible.
+      if (navigator.audioSession) navigator.audioSession.type = 'ambient'
     } catch (_) {}
 
     const savedInstrumentConfigs = { ...this.instrumentConfigs }
