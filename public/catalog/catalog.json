@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-23T19:49:40.278Z",
+  "generatedAt": "2026-09-24T04:37:43.655Z",
   "artists": [
     {
       "name": "Alex Warren",
@@ -460,6 +460,120 @@
     {
       "name": "Taylor Swift",
       "songs": [
+        {
+          "title": "Haunted",
+          "folder": "Taylor Swift - Haunted",
+          "transcription": "/catalog/Taylor%20Swift%20-%20Haunted/haunted-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Taylor Swift - Haunted/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "D",
+              "keyMode": "Minor",
+              "tempo": 81,
+              "internalBpm": 81,
+              "timeSignature": "4/4",
+              "bars": 8,
+              "melodyNotes": 57,
+              "chordNotes": 36,
+              "assets": {
+                "session": "/catalog/Taylor%20Swift%20-%20Haunted/verse/session.eartrainer.json",
+                "melody": "/catalog/Taylor%20Swift%20-%20Haunted/verse/melody.mid",
+                "chords": "/catalog/Taylor%20Swift%20-%20Haunted/verse/chords.mid",
+                "audio": "/catalog/Taylor%20Swift%20-%20Haunted/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Taylor Swift - Haunted/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "D",
+              "keyMode": "Minor",
+              "tempo": 81,
+              "internalBpm": 81,
+              "timeSignature": "4/4",
+              "bars": 8,
+              "melodyNotes": 62,
+              "chordNotes": 42,
+              "assets": {
+                "session": "/catalog/Taylor%20Swift%20-%20Haunted/chorus/session.eartrainer.json",
+                "melody": "/catalog/Taylor%20Swift%20-%20Haunted/chorus/melody.mid",
+                "chords": "/catalog/Taylor%20Swift%20-%20Haunted/chorus/chords.mid",
+                "audio": "/catalog/Taylor%20Swift%20-%20Haunted/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "Sparks Fly",
+          "folder": "Taylor Swift - Sparks Fly",
+          "transcription": "/catalog/Taylor%20Swift%20-%20Sparks%20Fly/sparks-fly-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Taylor Swift - Sparks Fly/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "F",
+              "keyMode": "Major",
+              "tempo": 115,
+              "internalBpm": 115,
+              "timeSignature": "4/4",
+              "bars": 8,
+              "melodyNotes": 45,
+              "chordNotes": 24,
+              "assets": {
+                "session": "/catalog/Taylor%20Swift%20-%20Sparks%20Fly/verse/session.eartrainer.json",
+                "melody": "/catalog/Taylor%20Swift%20-%20Sparks%20Fly/verse/melody.mid",
+                "chords": "/catalog/Taylor%20Swift%20-%20Sparks%20Fly/verse/chords.mid",
+                "audio": "/catalog/Taylor%20Swift%20-%20Sparks%20Fly/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Taylor Swift - Sparks Fly/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "F",
+              "keyMode": "Major",
+              "tempo": 115,
+              "internalBpm": 115,
+              "timeSignature": "4/4",
+              "bars": 16,
+              "melodyNotes": 81,
+              "chordNotes": 60,
+              "assets": {
+                "session": "/catalog/Taylor%20Swift%20-%20Sparks%20Fly/chorus/session.eartrainer.json",
+                "melody": "/catalog/Taylor%20Swift%20-%20Sparks%20Fly/chorus/melody.mid",
+                "chords": "/catalog/Taylor%20Swift%20-%20Sparks%20Fly/chorus/chords.mid",
+                "audio": "/catalog/Taylor%20Swift%20-%20Sparks%20Fly/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
         {
           "title": "The Fate of Ophelia",
           "folder": "Taylor Swift - The Fate of Ophelia",
