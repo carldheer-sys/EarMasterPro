@@ -206,7 +206,7 @@ function PianoRoll({
   regionStart = 0,
   regionEnd = 1,
   onRegionChange,
-  onZoom,               // (deltaY, {beat, cursorX}) — ctrl/cmd + wheel
+  onZoom,               // (deltaY) — ctrl/cmd + wheel
   cursorRef,          // ref holding playhead fraction 0..1 of the whole section
   isPlaying = false,
   zoom = 1,
@@ -220,6 +220,10 @@ function PianoRoll({
   const canvasRef = useRef(null)
   const gridRef = useRef(null)
   const playheadRef = useRef(null)
+  // Raw scroll position, kept current in the scroll listener — the zoom
+  // re-anchor can't read el.scrollLeft lazily because the browser clamps it
+  // the moment the grid shrinks, before the beatWidth effect runs.
+  const scrollLeftPxRef = useRef(0)
   const [scrollLeft, setScrollLeft] = useState(0)
   const [viewportWidth, setViewportWidth] = useState(1000)
 
@@ -290,7 +294,14 @@ function PianoRoll({
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const onScroll = () => setScrollLeft(el.scrollLeft)
+    const onScroll = () => {
+      const sl = el.scrollLeft
+      scrollLeftPxRef.current = sl
+      // Clamp the state so during a rubber-band overscroll the canvas draw
+      // slice stays consistent with the DOM grid instead of detaching.
+      const max = Math.max(0, el.scrollWidth - el.clientWidth)
+      setScrollLeft(Math.min(Math.max(0, sl), max))
+    }
     const onResize = () => setViewportWidth(el.clientWidth)
     onResize()
     const ro = new ResizeObserver(onResize)
@@ -299,34 +310,30 @@ function PianoRoll({
     return () => { ro.disconnect(); el.removeEventListener('scroll', onScroll) }
   }, [])
 
-  // ── Ctrl/Cmd + wheel zoom (anchored at cursor) ───────────────
+  // ── Ctrl/Cmd + wheel zoom ────────────────────────────────────
   // Non-passive listener so we can preventDefault the browser/page zoom.
-  const zoomAnchorRef = useRef(null) // {beat, cursorX} while a zoom is pending
   useEffect(() => {
     const el = scrollRef.current
     if (!el || !onZoom) return
     const onWheel = (e) => {
       if (!(e.ctrlKey || e.metaKey)) return
       e.preventDefault()
-      const rect = el.getBoundingClientRect()
-      const cursorX = e.clientX - rect.left // px from viewport left
-      // The grid starts 44px into the scrolled content (sticky label column)
-      const beat = (el.scrollLeft + cursorX - 44) / beatWidth
-      zoomAnchorRef.current = { beat, cursorX }
       onZoom(e.deltaY)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [onZoom, beatWidth])
+  }, [onZoom])
 
-  // Re-anchor scrollLeft after a zoom change so the beat under the cursor
-  // stays put.
+  // Keep the leftmost visible beat pinned across every zoom change (wheel,
+  // +/- buttons — any beatWidth change), clamped at both ends.
+  const prevBeatWidthRef = useRef(beatWidth)
   useEffect(() => {
-    const a = zoomAnchorRef.current
+    const prev = prevBeatWidthRef.current
+    prevBeatWidthRef.current = beatWidth
     const el = scrollRef.current
-    if (!a || !el) return
-    zoomAnchorRef.current = null
-    el.scrollLeft = Math.max(0, a.beat * beatWidth + 44 - a.cursorX)
+    if (!el || prev === beatWidth) return
+    const max = Math.max(0, el.scrollWidth - el.clientWidth)
+    el.scrollLeft = Math.min(Math.max(0, (scrollLeftPxRef.current / prev) * beatWidth), max)
   }, [beatWidth])
 
   // ── Playhead + canvas anchoring + auto-scroll (RAF — no re-render) ──
@@ -335,7 +342,10 @@ function PianoRoll({
     let last = -1
     let lastSl = -1
     const tick = () => {
-      const sl = scrollRef.current?.scrollLeft ?? 0
+      const el = scrollRef.current
+      // Clamp so the canvas rides with the DOM grid through any residual
+      // rubber-band overscroll instead of pinning to the scrollport.
+      const sl = el ? Math.min(Math.max(0, el.scrollLeft), Math.max(0, el.scrollWidth - el.clientWidth)) : 0
       // Keep the viewport-sized canvas glued to the scrollport (transform =
       // compositor-only, no paint). +44 accounts for the sticky label column.
       if (canvasRef.current && sl !== lastSl) {
@@ -349,8 +359,7 @@ function PianoRoll({
         playheadRef.current.style.opacity = px > 0 ? 0.95 : 0
         last = px
       }
-      if (isPlaying && scrollRef.current) {
-        const el = scrollRef.current
+      if (isPlaying && el) {
         const rel = px - el.scrollLeft
         const target = el.clientWidth * 0.35
         if (rel > target || rel < 0) {
@@ -471,7 +480,7 @@ function PianoRoll({
   }, [highestNote, lowestNote])
 
   return (
-    <div ref={scrollRef} className="overflow-x-auto overflow-y-hidden" style={{ WebkitOverflowScrolling: 'touch' }}>
+    <div ref={scrollRef} className="overflow-x-auto overflow-y-hidden" style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
       <div className="flex" style={{ width: 44 + gridWidth, height: gridHeight + BAR_LABEL_HEIGHT }}>
         {/* Sticky pitch labels */}
         <div className={`sticky left-0 z-20 shrink-0 border-r ${isDark ? 'border-slate-700 bg-slate-950' : 'border-slate-300 bg-slate-100'}`} style={{ width: 44, marginTop: BAR_LABEL_HEIGHT }}>

@@ -67,7 +67,7 @@ function CatalogSearch({ catalog, selectedId, onSelect, isDark }) {
             {song} <span className={sub}>·</span> <span className="font-semibold">{s.label}</span>
           </div>
           <div className={`mt-0.5 truncate text-[10px] ${sub}`}>
-            {artist} · {s.key} {s.keyMode} · {s.tempo} BPM · {s.timeSignature}
+            {artist} · {s.key} {s.keyMode} · {s.timeSignature} · {s.bars} bars
           </div>
         </div>
         <ChevronRight className={`h-4 w-4 shrink-0 ${active ? 'text-sky-300' : isDark ? 'text-slate-500' : 'text-slate-400'}`} />
@@ -85,7 +85,7 @@ function CatalogSearch({ catalog, selectedId, onSelect, isDark }) {
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Search artist or song…"
-            className={`min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:${sub} ${text}`}
+            className={`min-w-0 flex-1 bg-transparent text-base outline-none placeholder:${sub} ${text}`}
           />
           {query && (
             <button onClick={() => setQuery('')} aria-label="Clear search"
