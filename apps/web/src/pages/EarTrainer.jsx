@@ -366,7 +366,7 @@ function EarTrainer() {
   }, [])
 
   const ensureFreshAudioContext = useCallback(async ({ force = false, latencyHint = 'playback', start = true } = {}) => {
-    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
     const rawBefore = Tone.context.rawContext
     const isClosed = Tone.context.state === 'closed' || rawBefore?.state === 'closed'
     if (force && isClosed) {
@@ -418,6 +418,10 @@ function EarTrainer() {
       pausedBeatRef.current = 0
       cursorRef.current = 0
     }
+    // 'ambient' drops Now-Playing eligibility — dismisses the iOS lock-screen
+    // banner the moment playback isn't running (only 'playback' sessions are
+    // eligible). Restored to 'playback' in play()/ensureFreshAudioContext.
+    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
     try { if (navigator.mediaSession) navigator.mediaSession.playbackState = 'none' } catch (_) {}
     setPlaybackState('stopped')
   }, [])
@@ -436,6 +440,8 @@ function EarTrainer() {
     dronePlayingRef.current = false
     releaseActiveNotes(activeNotesRef)
     audioPlayerRef.current?.stop()
+    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
+    try { if (navigator.mediaSession) navigator.mediaSession.playbackState = 'none' } catch (_) {}
     setPlaybackState('paused')
   }, [playbackState])
 
@@ -518,7 +524,7 @@ function EarTrainer() {
       setAudioPreparing(true)
       setError('')
       // Unlock audio (requires user gesture on mobile)
-      try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
+      try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
       await ensureFreshAudioContext({ latencyHint: playbackRecoveryAttemptRef.current >= 2 ? 'interactive' : 'playback' })
 
       const resumeFromPause = playbackState === 'paused' || (playbackState === 'stopped' && seekBeatRef.current > 0)
@@ -721,8 +727,14 @@ function EarTrainer() {
   useEffect(() => {
     const handleHidden = () => {
       if (playbackState === 'playing') pausePlayback()
+      // Release the lock-screen banner + let iOS reclaim the context while
+      // backgrounded; handleVisible restores 'playback' and resumes.
+      try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
+      try { navigator.mediaSession && (navigator.mediaSession.playbackState = 'none') } catch (_) {}
+      try { Tone.context.rawContext?.suspend?.() } catch (_) {}
     }
     const handleVisible = async () => {
+      try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
       const toneState = Tone.context.state
       const rawState = Tone.context.rawContext?.state
       if (toneState === 'closed' || rawState === 'closed') {
@@ -745,7 +757,11 @@ function EarTrainer() {
       if (document.visibilityState === 'visible') handleVisible()
       else handleHidden()
     }
-    const handlePageHide = () => { if (playbackState === 'playing') stopPlayback() }
+    const handlePageHide = () => {
+      if (playbackState === 'playing') stopPlayback()
+      try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
+      try { Tone.context.rawContext?.suspend?.() } catch (_) {}
+    }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('pageshow', handleVisible)
     window.addEventListener('focus', handleVisible)

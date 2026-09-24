@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react'
 import { useScaleDegreeAnalysis } from '@/hooks/useScaleDegreeAnalysis'
 import { beatsPerBarFromTimeSignature, beatsPerDivisionFromTimeDivision, DEFAULT_TIME_SIGNATURE, normalizeKeyName, keyAtBeat } from '@common/lib/midiUtils'
 
@@ -295,6 +295,7 @@ function PianoRoll({
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
+    let snapTimer = 0
     const onScroll = () => {
       const sl = el.scrollLeft
       scrollLeftPxRef.current = sl
@@ -302,13 +303,21 @@ function PianoRoll({
       // slice stays consistent with the DOM grid instead of detaching.
       const max = Math.max(0, el.scrollWidth - el.clientWidth)
       setScrollLeft(Math.min(Math.max(0, sl), max))
+      // Once scrolling settles, snap to a whole CSS pixel: a fractional
+      // scroll offset composites the ENTIRE scroll layer (DOM labels and
+      // canvas alike) at a sub-pixel position → everything blurs.
+      window.clearTimeout(snapTimer)
+      snapTimer = window.setTimeout(() => {
+        const snapped = Math.round(el.scrollLeft)
+        if (Math.abs(el.scrollLeft - snapped) > 0.01) el.scrollLeft = snapped
+      }, 120)
     }
-    const onResize = () => setViewportWidth(el.clientWidth)
+    const onResize = () => setViewportWidth(el.getBoundingClientRect().width)
     onResize()
     const ro = new ResizeObserver(onResize)
     ro.observe(el)
     el.addEventListener('scroll', onScroll, { passive: true })
-    return () => { ro.disconnect(); el.removeEventListener('scroll', onScroll) }
+    return () => { ro.disconnect(); el.removeEventListener('scroll', onScroll); window.clearTimeout(snapTimer) }
   }, [])
 
   // ── Ctrl/Cmd + wheel zoom ────────────────────────────────────
@@ -326,19 +335,23 @@ function PianoRoll({
   }, [onZoom])
 
   // Keep the leftmost visible beat pinned across every zoom change (wheel,
-  // +/- buttons — any beatWidth change), clamped at both ends.
+  // +/- buttons — any beatWidth change), clamped at both ends. useLayoutEffect
+  // so the re-anchor lands before paint — a useEffect would let the browser
+  // paint one frame at the clamped position first (visible jump).
   const prevBeatWidthRef = useRef(beatWidth)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const prev = prevBeatWidthRef.current
     prevBeatWidthRef.current = beatWidth
     const el = scrollRef.current
     if (!el || prev === beatWidth) return
     const max = Math.max(0, el.scrollWidth - el.clientWidth)
-    el.scrollLeft = Math.min(Math.max(0, (scrollLeftPxRef.current / prev) * beatWidth), max)
+    const snapped = Math.min(Math.max(0, Math.round((scrollLeftPxRef.current / prev) * beatWidth)), max)
+    el.scrollLeft = snapped
+    scrollLeftPxRef.current = snapped
   }, [beatWidth])
 
   // Snap back to the section start when playback stops; pause keeps the view.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (playbackState !== 'stopped') return
     const el = scrollRef.current
     if (!el) return
@@ -356,16 +369,12 @@ function PianoRoll({
       // Clamp so the canvas rides with the DOM grid through any residual
       // rubber-band overscroll instead of pinning to the scrollport.
       const sl = el ? Math.min(Math.max(0, el.scrollLeft), Math.max(0, el.scrollWidth - el.clientWidth)) : 0
-      // Snap the canvas transform to whole device pixels — a fractional
-      // translate makes the compositor resample the bitmap and blurs every
-      // grid line and label. The draw offset snaps identically, so the canvas
-      // stays exactly aligned with the DOM grid.
-      const slCanvas = Math.round(sl * (window.devicePixelRatio || 1)) / (window.devicePixelRatio || 1)
       // Keep the viewport-sized canvas glued to the scrollport (transform =
       // compositor-only, no paint). +44 accounts for the sticky label column.
-      if (canvasRef.current && slCanvas !== lastSl) {
-        canvasRef.current.style.transform = `translateX(${slCanvas}px)`
-        lastSl = slCanvas
+      // transform = sl exactly so the element lands at an integer position.
+      if (canvasRef.current && sl !== lastSl) {
+        canvasRef.current.style.transform = `translateX(${sl}px)`
+        lastSl = sl
       }
       const frac = cursorRef?.current ?? 0
       const px = frac * gridWidth
@@ -403,8 +412,10 @@ function PianoRoll({
     const bh = Math.round(gridHeight * dpr)
     // Assigning width/height clears the canvas — only touch it when it changed
     if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh }
-    canvas.style.width = `${cssW}px`
-    canvas.style.height = `${gridHeight}px`
+    // Size the element to exact multiples of 1/dpr so the bitmap composites
+    // 1:1 — a fractional CSS size forces a GPU stretch and softens everything.
+    canvas.style.width = `${bw / dpr}px`
+    canvas.style.height = `${bh / dpr}px`
     // Snap the slice offset to whole device pixels (matching the canvas
     // element's snapped translateX in the RAF tick) so integer grid coords
     // land on exact device pixels — fractional offsets blur everything.

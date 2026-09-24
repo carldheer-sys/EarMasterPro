@@ -291,9 +291,10 @@ class AudioEngine {
     let contextChanged = false
 
     try {
-      // 'ambient' keeps the AudioContext out of iOS Now Playing (lock-screen
-      // banner) — only 'playback'/'play-and-record' sessions are eligible.
-      if (navigator.audioSession) navigator.audioSession.type = 'ambient'
+      // 'playback' bypasses the iOS mute switch during playback. EarTrainer
+      // switches to 'ambient' on pause/stop/background so the Now-Playing
+      // banner is only eligible while audio is actually running.
+      if (navigator.audioSession) navigator.audioSession.type = 'playback'
     } catch (_) {}
 
     const savedInstrumentConfigs = { ...this.instrumentConfigs }
