@@ -42,6 +42,20 @@ export class GranularPlayer {
       throw new Error('GranularPlayer.initialize requires a valid AudioContext')
     }
 
+    // play() and the contextEpoch effect can both call this after a context
+    // swap — serialize so the second caller observes the finished binding
+    // instead of double-initializing.
+    while (this._initTask) {
+      try { await this._initTask } catch (_) {}
+    }
+    if (this.audioContext === audioContext && this.gainNode) return
+
+    const task = this._initializeContext(audioContext)
+    this._initTask = task
+    try { await task } finally { if (this._initTask === task) this._initTask = null }
+  }
+
+  async _initializeContext(audioContext) {
     if (this.audioContext && this.audioContext !== audioContext) {
       this.stop()
       if (this.gainNode) { try { this.gainNode.disconnect() } catch (_) {} ; this.gainNode = null }

@@ -73,19 +73,38 @@ export function isContextBlocked(state) {
   return state === 'suspended' || state === 'interrupted' || state === 'closed'
 }
 
+// Whether the CURRENT Tone context was created before any user activation.
+// Tone's import-time context is always born pre-gesture; contexts swapped in
+// later are post-activation once any gesture has occurred (hasBeenActive is
+// sticky). Such pre-activation contexts can report 'running' while their
+// render thread never starts (headless builds; iOS after restores).
+let contextCreatedPreActivation = true
+// Whether the current context's clock has been observed advancing — i.e. it
+// has demonstrably rendered audio, not just reported 'running'.
+let contextRenderProven = false
+
+function observeContextRendered() {
+  if (!contextRenderProven && Tone.getContext()?.rawContext?.currentTime > 0.005) {
+    contextRenderProven = true
+  }
+  return contextRenderProven
+}
+
 /**
  * Replace the global Tone context with a fresh one and close the previous
  * raw context. iOS only allows a handful of live AudioContexts — rebuilding
  * without closing leaks one every time and eventually kills audio for good.
  */
 export function swapToneContext(latencyHint = 'playback') {
-  const prevRaw = Tone.context?.rawContext
+  const prevRaw = Tone.getContext()?.rawContext
   Tone.setContext(new Tone.Context({ latencyHint }))
-  Tone.context.lookAhead = 0.1
-  if (prevRaw && prevRaw !== Tone.context.rawContext && prevRaw.state !== 'closed') {
-    try { prevRaw.close() } catch (_) {}
+  contextCreatedPreActivation = !(navigator.userActivation?.hasBeenActive ?? true)
+  contextRenderProven = false
+  Tone.getContext().lookAhead = 0.1
+  if (prevRaw && prevRaw !== Tone.getContext().rawContext && prevRaw.state !== 'closed') {
+    try { const p = prevRaw.close(); p?.catch?.(() => {}) } catch (_) {}
   }
-  return Tone.context.rawContext
+  return Tone.getContext().rawContext
 }
 
 // Tonic name → MIDI note number at octave 2
@@ -152,7 +171,7 @@ class AudioEngine {
    */
   startNote(noteName, velocity = 100, instrument = 'piano') {
     // Fire-and-forget context recovery if needed
-    if (Tone.context?.state !== 'running' || !this.isInitialized) {
+    if (Tone.getContext()?.state !== 'running' || !this.isInitialized) {
       this.ensureActive({ loadDefaultPiano: false }).catch(() => {})
     }
     if (!this.isInitialized) return
@@ -213,18 +232,31 @@ class AudioEngine {
   }
 
   async initialize(options = {}) {
-    const rawContext = Tone.context?.rawContext
-    if (this.isInitialized && this.rawContext === rawContext && Tone.context.state !== 'closed' && rawContext?.state !== 'closed') return
+    // Dedupe concurrent initializes — mount-init + play-init + ensureActive
+    // can overlap; two interleaved runs cross-wire midiGain/analyser nodes.
+    if (this._initPromise) return this._initPromise
+    const task = this._initializeInner(options)
+    this._initPromise = task
+    try {
+      await task
+    } finally {
+      this._initPromise = null
+    }
+  }
+
+  async _initializeInner(options = {}) {
+    const rawContext = Tone.getContext()?.rawContext
+    if (this.isInitialized && this.rawContext === rawContext && Tone.getContext().state !== 'closed' && rawContext?.state !== 'closed') return
     if (this.isInitialized) this.dispose()
 
     try {
       const latencyHint = options.latencyHint || 'playback'
       // Set latencyHint to 'playback' for stability with large MIDI sequences
-      if (!Tone.context._initialized || Tone.context.state === 'closed' || Tone.context.rawContext?.state === 'closed') {
+      if (!Tone.getContext()._initialized || Tone.getContext().state === 'closed' || Tone.getContext().rawContext?.state === 'closed') {
         swapToneContext(latencyHint)
       }
 
-      Tone.context.lookAhead = 0.1
+      Tone.getContext().lookAhead = 0.1
 
       // MIDI-only gain node → mastering FX chain → Destination.
       //   midiGain → compressor → limiter → destination
@@ -246,11 +278,22 @@ class AudioEngine {
       // The convolver builds its impulse response asynchronously
       try { await this.fxReverb.ready } catch (_) {}
 
+      // Output tap for the silence watchdog: an AnalyserNode works as a sink
+      // (its output stays unconnected) — it analyzes whatever flows into it.
+      try {
+        this.outputAnalyser = Tone.getContext().createAnalyser()
+        this.outputAnalyser.fftSize = 256
+        this.outputAnalyser.smoothingTimeConstant = 0
+        this.midiGain.connect(this.outputAnalyser)
+      } catch (_) {
+        this.outputAnalyser = null
+      }
+
       // Silent keepalive: a looping *silent buffer source* through a 0-gain
       // node keeps the render graph nominally active. (A bare Gain node with
       // no input does nothing — iOS would still suspend an idle context.)
       if (!this.silentSource) {
-        const raw = Tone.context.rawContext
+        const raw = Tone.getContext().rawContext
         this.silentKeepalive = raw.createGain()
         this.silentKeepalive.gain.value = 0
         this.silentKeepalive.connect(raw.destination)
@@ -265,11 +308,11 @@ class AudioEngine {
         await this.loadInstrument('piano', { attack: 0.02, release: 1, volume: -6 })
       }
 
-      Tone.Transport.bpm.value = 120
-      Tone.Transport.timeSignature = 4
-      Tone.Transport.loop = false
+      Tone.getTransport().bpm.value = 120
+      Tone.getTransport().timeSignature = 4
+      Tone.getTransport().loop = false
 
-      this.rawContext = Tone.context.rawContext
+      this.rawContext = Tone.getContext().rawContext
       this.lastActiveAt = Date.now()
       this.isInitialized = true
       this.startKeepalive()
@@ -281,10 +324,23 @@ class AudioEngine {
   }
 
   async ensureActive(options = {}) {
+    // Dedupe: a concurrent ensureActive (e.g. keyboard fire-and-forget during
+    // play setup) must not interleave dispose/swap with an in-flight one.
+    if (this._ensurePromise) return this._ensurePromise
+    const task = this._ensureActiveInner(options)
+    this._ensurePromise = task
+    try {
+      return await task
+    } finally {
+      this._ensurePromise = null
+    }
+  }
+
+  async _ensureActiveInner(options = {}) {
     const latencyHint = options.latencyHint || 'playback'
     const loadDefaultPiano = options.loadDefaultPiano !== false
-    const rawBefore = Tone.context?.rawContext
-    const toneState = Tone.context?.state
+    const rawBefore = Tone.getContext()?.rawContext
+    const toneState = Tone.getContext()?.state
     const rawState = rawBefore?.state
     const stale = this.isInitialized && Date.now() - this.lastActiveAt > this.staleContextMs
     const forceRebuild = options.forceRebuild || stale || toneState === 'closed' || rawState === 'closed'
@@ -308,13 +364,52 @@ class AudioEngine {
     if (!this.isInitialized) {
       await this.initialize({ loadDefaultPiano, latencyHint })
       contextChanged = contextChanged || this.rawContext !== rawBefore
-    } else if (this.rawContext && this.rawContext !== Tone.context.rawContext) {
+    } else if (this.rawContext && this.rawContext !== Tone.getContext().rawContext) {
       this.dispose()
       await this.initialize({ loadDefaultPiano, latencyHint })
       contextChanged = true
     }
 
-    // Reload all previously configured instruments after a context rebuild
+    // Timeout-guarded resume: on iOS a resume() promise can hang forever on an
+    // interrupted context — never await it bare.
+    await resumeWithTimeout(Tone.start())
+    if (Tone.getContext().state !== 'running') await resumeWithTimeout(Tone.getContext().resume())
+    if (Tone.getContext().rawContext?.state !== 'running') await resumeWithTimeout(Tone.getContext().rawContext.resume())
+
+    // Still blocked (suspended/interrupted/closed): rebuild the context once
+    // and retry — the caller is usually inside a user gesture here.
+    if (isContextBlocked(Tone.getContext().state) || isContextBlocked(Tone.getContext().rawContext?.state)) {
+      this.dispose()
+      swapToneContext(latencyHint)
+      await this.initialize({ loadDefaultPiano, latencyHint })
+      await resumeWithTimeout(Tone.start())
+      if (Tone.getContext().state !== 'running') await resumeWithTimeout(Tone.getContext().resume())
+      if (Tone.getContext().rawContext?.state !== 'running') await resumeWithTimeout(Tone.getContext().rawContext.resume())
+      contextChanged = true
+    }
+
+    // A context created before the first user gesture can report 'running'
+    // while its render thread never actually starts (headless builds; iOS
+    // after restores). Inside a user gesture, give it a short window to prove
+    // the clock advances — if it doesn't, replace it while activation is
+    // still live so the fresh context can start rendering immediately.
+    if (contextCreatedPreActivation && !contextRenderProven
+        && Tone.getContext().rawContext?.state === 'running'
+        && navigator.userActivation?.isActive) {
+      await new Promise(r => setTimeout(r, 120))
+      if (!observeContextRendered() && Tone.getContext().rawContext?.state === 'running') {
+        this.dispose()
+        swapToneContext(latencyHint)
+        await this.initialize({ loadDefaultPiano, latencyHint })
+        await resumeWithTimeout(Tone.start())
+        if (Tone.getContext().state !== 'running') await resumeWithTimeout(Tone.getContext().resume())
+        if (Tone.getContext().rawContext?.state !== 'running') await resumeWithTimeout(Tone.getContext().rawContext.resume())
+        contextChanged = true
+      }
+    }
+
+    // Reload all previously configured instruments after a context rebuild.
+    // Runs AFTER the blocked-retry above so post-swap engines get them too.
     if (contextChanged && Object.keys(savedInstrumentConfigs).length > 0) {
       for (const [inst, cfg] of Object.entries(savedInstrumentConfigs)) {
         if (!this.samplers[inst] && !this.synths[inst]) {
@@ -323,27 +418,9 @@ class AudioEngine {
       }
     }
 
-    // Timeout-guarded resume: on iOS a resume() promise can hang forever on an
-    // interrupted context — never await it bare.
-    await resumeWithTimeout(Tone.start())
-    if (Tone.context.state !== 'running') await resumeWithTimeout(Tone.context.resume())
-    if (Tone.context.rawContext?.state !== 'running') await resumeWithTimeout(Tone.context.rawContext.resume())
-
-    // Still blocked (suspended/interrupted/closed): rebuild the context once
-    // and retry — the caller is usually inside a user gesture here.
-    if (isContextBlocked(Tone.context.state) || isContextBlocked(Tone.context.rawContext?.state)) {
-      this.dispose()
-      swapToneContext(latencyHint)
-      await this.initialize({ loadDefaultPiano, latencyHint })
-      await resumeWithTimeout(Tone.start())
-      if (Tone.context.state !== 'running') await resumeWithTimeout(Tone.context.resume())
-      if (Tone.context.rawContext?.state !== 'running') await resumeWithTimeout(Tone.context.rawContext.resume())
-      contextChanged = true
-    }
-
-    this.rawContext = Tone.context.rawContext
+    this.rawContext = Tone.getContext().rawContext
     this.lastActiveAt = Date.now()
-    return { contextChanged, rawContext: Tone.context.rawContext }
+    return { contextChanged, rawContext: Tone.getContext().rawContext }
   }
 
   async startAudioContext() {
@@ -360,14 +437,16 @@ class AudioEngine {
     this.stopKeepalive()
     this.keepaliveIntervalId = setInterval(async () => {
       try {
-        const rawCtx = Tone.context?.rawContext
+        if (document.hidden) return  // don't fight an OS/deliberate suspend
+        const rawCtx = Tone.getContext()?.rawContext
         if (!rawCtx) return
         if (rawCtx.state === 'suspended' || rawCtx.state === 'interrupted') {
           await resumeWithTimeout(rawCtx.resume(), 800)
         }
-        if (Tone.context?.state === 'suspended' || Tone.context?.state === 'interrupted') {
-          await resumeWithTimeout(Tone.context.resume(), 800)
+        if (Tone.getContext()?.state === 'suspended' || Tone.getContext()?.state === 'interrupted') {
+          await resumeWithTimeout(Tone.getContext().resume(), 800)
         }
+        observeContextRendered()
         if (rawCtx.state === 'running' && this.isInitialized) {
           this.lastActiveAt = Date.now()
         }
@@ -384,36 +463,55 @@ class AudioEngine {
     }
   }
 
+  /**
+   * RMS of the signal tapped off midiGain (see outputAnalyser in initialize).
+   * ~0 means the render graph is silent — used by the playback watchdog to
+   * catch iOS "running but no sound" contexts after session interruptions.
+   */
+  getOutputLevel() {
+    const a = this.outputAnalyser
+    if (!a) return 0
+    try {
+      const buf = new Float32Array(a.fftSize)
+      a.getFloatTimeDomainData(buf)
+      let sum = 0
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
+      return Math.sqrt(sum / buf.length)
+    } catch (_) {
+      return 0
+    }
+  }
+
   setTempo(bpm, timeSignature = null) {
-    if (Tone.Transport) {
+    if (Tone.getTransport()) {
       const internalBpm = timeSignature ? getInternalBpm(bpm, timeSignature) : bpm
-      Tone.Transport.bpm.value = internalBpm
+      Tone.getTransport().bpm.value = internalBpm
     }
   }
 
   setLoopLength(bars) {
-    if (Tone.Transport) {
-      this.totalTicks = bars * Tone.Transport.timeSignature * Tone.Transport.PPQ
+    if (Tone.getTransport()) {
+      this.totalTicks = bars * Tone.getTransport().timeSignature * Tone.getTransport().PPQ
     }
   }
 
   setLoopEnabled(enabled, bars = 4) {
-    if (!Tone.Transport) return
-    Tone.Transport.loop = enabled
+    if (!Tone.getTransport()) return
+    Tone.getTransport().loop = enabled
     if (enabled) {
       const loopLength = `${bars}m`
-      Tone.Transport.loopEnd = loopLength
+      Tone.getTransport().loopEnd = loopLength
     }
   }
 
   // Set loop with exact beat duration for precise region looping
   setLoopEnabledBeats(enabled, beats) {
-    if (!Tone.Transport) return
-    Tone.Transport.loop = enabled
+    if (!Tone.getTransport()) return
+    Tone.getTransport().loop = enabled
     if (enabled) {
       // Convert beats to ticks for precise loop point
-      const loopTicks = Math.round(beats * Tone.Transport.PPQ)
-      Tone.Transport.loopEnd = `${loopTicks}i`
+      const loopTicks = Math.round(beats * Tone.getTransport().PPQ)
+      Tone.getTransport().loopEnd = `${loopTicks}i`
     }
   }
 
@@ -513,7 +611,7 @@ class AudioEngine {
       const arrayBuffer = cache.get(note)
       if (arrayBuffer) {
         try {
-          const decoded = await Tone.context.rawContext.decodeAudioData(arrayBuffer.slice(0))
+          const decoded = await Tone.getContext().rawContext.decodeAudioData(arrayBuffer.slice(0))
           decodedUrls[note] = decoded
         } catch (e) {
           console.warn(`[AudioEngine] Failed to decode ${instrument}/${note}:`, e.message)
@@ -562,8 +660,8 @@ class AudioEngine {
     const contextStarted = await this.startAudioContext()
     if (!contextStarted) throw new Error('Audio context could not be started')
 
-    Tone.Transport.position = `${Math.round(startBeat * Tone.Transport.PPQ)}i`
-    Tone.Transport.start()
+    Tone.getTransport().position = `${Math.round(startBeat * Tone.getTransport().PPQ)}i`
+    Tone.getTransport().start()
     this.lastActiveAt = Date.now()
     
     this.startPositionTracking()
@@ -576,8 +674,8 @@ class AudioEngine {
     try { this.killAllActiveNotes() } catch (_) {}
     try { this.stopAllLiveNotes() } catch (_) {}
     try { this.stopDrone() } catch (_) {}
-    try { Tone.Transport.stop() } catch (_) {}
-    try { Tone.Transport.position = 0 } catch (_) {}
+    try { Tone.getTransport().stop() } catch (_) {}
+    try { Tone.getTransport().position = 0 } catch (_) {}
     this.cursorPosition = 0
     if (this.onCursorUpdate) this.onCursorUpdate(0)
   }
@@ -588,7 +686,7 @@ class AudioEngine {
     if (releaseActiveNotes) {
       try { this.killAllActiveNotes() } catch (_) {}
     }
-    try { Tone.Transport.pause() } catch (_) {}
+    try { Tone.getTransport().pause() } catch (_) {}
   }
 
   startPositionTracking = () => {
@@ -597,9 +695,9 @@ class AudioEngine {
     const throttleMs = 16
     
     const updateLoop = (timestamp) => {
-      if (Tone.Transport.state === 'started' && this.totalTicks > 0) {
+      if (Tone.getTransport().state === 'started' && this.totalTicks > 0) {
         if (timestamp - lastUpdate >= throttleMs) {
-          let progress = Tone.Transport.ticks / this.totalTicks
+          let progress = Tone.getTransport().ticks / this.totalTicks
           
           if (progress > 1) progress = 1
           
@@ -654,8 +752,8 @@ class AudioEngine {
   }
 
   scheduleNotes(notes, timeDivision, bars = 4, instrument = 'piano', trackVolume = 0) {
-    const beatsPerBar = Tone.Transport.timeSignature
-    const ppq = Tone.Transport.PPQ
+    const beatsPerBar = Tone.getTransport().timeSignature
+    const ppq = Tone.getTransport().PPQ
     
     this.totalTicks = bars * beatsPerBar * ppq
     
@@ -698,9 +796,9 @@ class AudioEngine {
   scheduleLookAheadBatch() {
     if (this.allNotes.length === 0) return
     
-    const currentTime = Tone.Transport.seconds
-    const ppq = Tone.Transport.PPQ
-    const tempo = Tone.Transport.bpm.value
+    const currentTime = Tone.getTransport().seconds
+    const ppq = Tone.getTransport().PPQ
+    const tempo = Tone.getTransport().bpm.value
     const secondsPerBeat = 60 / tempo
     
     // Schedule notes within look-ahead window
@@ -720,7 +818,7 @@ class AudioEngine {
       const baseVelocity = noteData.velocity !== undefined ? noteData.velocity : 0.8
       const finalVelocity = Math.min(Math.max(baseVelocity * noteData.volumeMultiplier, 0), 1)
       
-      const eventId = Tone.Transport.schedule((time) => {
+      const eventId = Tone.getTransport().schedule((time) => {
         noteData.instrument.triggerAttackRelease(
           noteData.note,
           durationTicks + "i",
@@ -742,7 +840,7 @@ class AudioEngine {
     
     // Run scheduler every 250ms to keep scheduling ahead
     this.schedulerIntervalId = setInterval(() => {
-      if (Tone.Transport.state === 'started') {
+      if (Tone.getTransport().state === 'started') {
         this.scheduleLookAheadBatch()
         this.cleanupPassedEvents()
       }
@@ -757,12 +855,12 @@ class AudioEngine {
   }
 
   cleanupPassedEvents() {
-    const currentTick = Tone.Transport.ticks
+    const currentTick = Tone.getTransport().ticks
     
     // Remove events that have already been triggered
     this.scheduledEvents = this.scheduledEvents.filter(event => {
       if (event.tick < currentTick - 1000) { // 1000 tick buffer
-        Tone.Transport.clear(event.id)
+        Tone.getTransport().clear(event.id)
         return false
       }
       return true
@@ -788,12 +886,12 @@ class AudioEngine {
     this.stopLookAheadScheduler()
 
     if (this.stopEventId !== null) {
-      try { Tone.Transport.clear(this.stopEventId) } catch (_) {}
+      try { Tone.getTransport().clear(this.stopEventId) } catch (_) {}
       this.stopEventId = null
     }
 
     this.scheduledEvents.forEach((event) => {
-      try { Tone.Transport.clear(event.id || event) } catch (_) {}
+      try { Tone.getTransport().clear(event.id || event) } catch (_) {}
     })
     this.scheduledEvents = []
     this.allNotes = []
@@ -802,12 +900,12 @@ class AudioEngine {
   }
 
   scheduleStopEvent(bars = 4) {
-    if (!Tone.Transport) return
+    if (!Tone.getTransport()) return
     const stopTime = `${bars}m`
     if (this.stopEventId !== null) {
-      Tone.Transport.clear(this.stopEventId)
+      Tone.getTransport().clear(this.stopEventId)
     }
-    this.stopEventId = Tone.Transport.schedule((time) => {
+    this.stopEventId = Tone.getTransport().schedule((time) => {
       this.stop()
       if (this.onPlaybackComplete) this.onPlaybackComplete()
     }, stopTime)
@@ -815,11 +913,11 @@ class AudioEngine {
 
   // Stop after an exact duration in seconds from transport position 0.
   scheduleStopAtSeconds(durationSeconds) {
-    if (!Tone.Transport) return
+    if (!Tone.getTransport()) return
     if (this.stopEventId !== null) {
-      Tone.Transport.clear(this.stopEventId)
+      Tone.getTransport().clear(this.stopEventId)
     }
-    this.stopEventId = Tone.Transport.schedule((time) => {
+    this.stopEventId = Tone.getTransport().schedule((time) => {
       this.stop()
       if (this.onPlaybackComplete) this.onPlaybackComplete()
     }, `${durationSeconds}`)
@@ -829,12 +927,12 @@ class AudioEngine {
   // Schedules in ticks so the stop fires at the correct wall-clock time
   // regardless of the current BPM (i.e. tempo * playbackSpeed).
   scheduleStopAtBeats(beats) {
-    if (!Tone.Transport) return
+    if (!Tone.getTransport()) return
     if (this.stopEventId !== null) {
-      Tone.Transport.clear(this.stopEventId)
+      Tone.getTransport().clear(this.stopEventId)
     }
-    const ticks = Math.round(beats * Tone.Transport.PPQ)
-    this.stopEventId = Tone.Transport.schedule((time) => {
+    const ticks = Math.round(beats * Tone.getTransport().PPQ)
+    this.stopEventId = Tone.getTransport().schedule((time) => {
       this.stop()
       if (this.onPlaybackComplete) this.onPlaybackComplete()
     }, `${ticks}i`)
@@ -874,7 +972,7 @@ class AudioEngine {
       { midi: highOctave,  gainDb: volumeDb - 14, lfoHz: 0.08,  lfoDepth: 0.001, type: 'sine'     },
     ]
 
-    const ppq   = Tone.Transport.PPQ
+    const ppq   = Tone.getTransport().PPQ
     const ticks = Math.round(regionBeats * ppq)
     // Duration string in ticks — covers the full region
     const durTicks = ticks + 'i'
@@ -922,7 +1020,7 @@ class AudioEngine {
   stopDrone() {
     // Clear scheduled Transport events
     for (const id of this.droneScheduledEvents) {
-      try { Tone.Transport.clear(id) } catch (_) {}
+      try { Tone.getTransport().clear(id) } catch (_) {}
     }
     this.droneScheduledEvents = []
 
@@ -961,7 +1059,7 @@ class AudioEngine {
     })
     this.samplers = {}
     this.synths = {}
-    for (const key of ['fxCompressor', 'fxLimiter', 'fxReverbSend', 'fxReverb']) {
+    for (const key of ['fxCompressor', 'fxLimiter', 'fxReverbSend', 'fxReverb', 'outputAnalyser']) {
       try { this[key]?.dispose() } catch (_) {}
       this[key] = null
     }
@@ -978,7 +1076,7 @@ class AudioEngine {
       try { this.silentKeepalive.disconnect() } catch (_) {}
       this.silentKeepalive = null
     }
-    try { Tone.Transport.stop() } catch (_) {}
+    try { Tone.getTransport().stop() } catch (_) {}
     this.stopKeepalive()
     this.rawContext = null
     this.lastActiveAt = Date.now()

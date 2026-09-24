@@ -121,7 +121,7 @@ const AUDIO_TICK_MS = 100       // scheduler wake-up interval
  */
 function scheduleNotesAudioClock(notes, { regionBeats, tempo, resumeRegionBeat, looping, timerRef, pendingRef }) {
   if (!notes.length || regionBeats <= 0) return
-  const ctx = Tone.context.rawContext
+  const ctx = Tone.getContext().rawContext
   if (!ctx) return
   const spb = 60 / tempo                       // seconds per region beat
   const t0 = ctx.currentTime + 0.05            // audio time of region-beat `origin`
@@ -168,7 +168,7 @@ function scheduleNotesAudioClock(notes, { regionBeats, tempo, resumeRegionBeat, 
 
 /** Silently cancel enqueued-but-unfired notes + release sounding ones. */
 function cancelPendingAudioNotes(pendingRef) {
-  const now = Tone.context.rawContext?.currentTime ?? 0
+  const now = Tone.getContext().rawContext?.currentTime ?? 0
   for (const e of pendingRef.current) {
     // +20ms so the release lands just after the attack — cancels the note
     // without an audible blip and without racing a same-timestamp attack.
@@ -259,6 +259,7 @@ function EarTrainer() {
 
   // Playback state
   const [playbackState, setPlaybackState] = useState('stopped')
+  const playbackStateRef = useRef('stopped')
   const [isInitialized, setIsInitialized] = useState(false)
   const [loading, setLoading] = useState(true)
   const [audioPreparing, setAudioPreparing] = useState(false)
@@ -367,26 +368,30 @@ function EarTrainer() {
 
   const ensureFreshAudioContext = useCallback(async ({ force = false, latencyHint = 'playback', start = true } = {}) => {
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
-    const rawBefore = Tone.context.rawContext
-    const isClosed = Tone.context.state === 'closed' || rawBefore?.state === 'closed'
-    if (force && isClosed) {
+    const rawBefore = Tone.getContext().rawContext
+    const isClosed = Tone.getContext().state === 'closed' || rawBefore?.state === 'closed'
+    // A closed context can never be reopened — always swap, not just on force.
+    if (isClosed) {
       resetAudioStateAfterContextChange()
       swapToneContext(latencyHint)
     }
-    const rawContext = Tone.context.rawContext
+    const rawContext = Tone.getContext().rawContext
     if (start) {
       // resume() can hang forever on iOS interrupted contexts — never await bare
       await resumeWithTimeout(Tone.start())
-      if (Tone.context.state !== 'running') await resumeWithTimeout(Tone.context.resume())
+      if (Tone.getContext().state !== 'running') await resumeWithTimeout(Tone.getContext().resume())
       if (rawContext?.state !== 'running') await resumeWithTimeout(rawContext.resume())
-      if (Tone.context.state === 'closed' || rawContext?.state === 'closed') {
+      if (Tone.getContext().state === 'closed' || rawContext?.state === 'closed') {
         throw new Error('Audio context could not be reopened.')
       }
-    } else if (Tone.context.state === 'closed' || rawContext?.state === 'closed') {
+    } else if (Tone.getContext().state === 'closed' || rawContext?.state === 'closed') {
       swapToneContext(latencyHint)
     }
     const contextChanged = Boolean(lastRawContextRef.current && lastRawContextRef.current !== rawContext)
-    if (contextChanged) resetAudioStateAfterContextChange()
+    if (contextChanged) {
+      resetAudioStateAfterContextChange()
+      setContextEpoch(e => e + 1) // decoded audio + statechange listener rebind
+    }
     lastRawContextRef.current = rawContext
     return { rawContext, contextChanged: contextChanged || (force && isClosed) }
   }, [resetAudioStateAfterContextChange])
@@ -423,6 +428,7 @@ function EarTrainer() {
     // eligible). Restored to 'playback' in play()/ensureFreshAudioContext.
     try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
     try { if (navigator.mediaSession) navigator.mediaSession.playbackState = 'none' } catch (_) {}
+    playbackStateRef.current = 'stopped'
     setPlaybackState('stopped')
   }, [])
 
@@ -433,6 +439,7 @@ function EarTrainer() {
     pausedBeatRef.current = startBeat + elapsedBeats
     clearTimerList(noteTimersRef)
     if (stopTimerRef.current) { window.clearTimeout(stopTimerRef.current); stopTimerRef.current = null }
+    if (playbackWatchdogTimerRef.current) { window.clearTimeout(playbackWatchdogTimerRef.current); playbackWatchdogTimerRef.current = null }
     cancelPendingAudioNotes(notePendingRef)
     audioEngine.pause({ releaseActiveNotes: false })
     audioEngine.stopDrone()
@@ -442,6 +449,7 @@ function EarTrainer() {
     audioPlayerRef.current?.stop()
     try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
     try { if (navigator.mediaSession) navigator.mediaSession.playbackState = 'none' } catch (_) {}
+    playbackStateRef.current = 'paused'
     setPlaybackState('paused')
   }, [playbackState])
 
@@ -450,8 +458,8 @@ function EarTrainer() {
   const recoverAudioGraphForRetry = useCallback(async (attempt = 1) => {
     audioEngine.dispose()
     setIsInitialized(false)
-    try { Tone.Transport.cancel() } catch (_) {}
-    try { Tone.Transport.stop() } catch (_) {}
+    try { Tone.getTransport().cancel() } catch (_) {}
+    try { Tone.getTransport().stop() } catch (_) {}
     lastRawContextRef.current = null
     const latencyHint = attempt >= 2 ? 'interactive' : 'playback'
     // From the second attempt on, replace the context outright — the old one
@@ -459,7 +467,7 @@ function EarTrainer() {
     if (attempt >= 2) swapToneContext(latencyHint)
     const { rawContext } = await ensureFreshAudioContext({ force: true, latencyHint })
     await new Promise(r => window.setTimeout(r, 80))
-    if (Tone.context.state !== 'running') await resumeWithTimeout(Tone.context.resume())
+    if (Tone.getContext().state !== 'running') await resumeWithTimeout(Tone.getContext().resume())
     if (rawContext?.state !== 'running') await resumeWithTimeout(rawContext.resume())
     await audioEngine.initialize({ loadDefaultPiano: false })
     await audioEngine.loadInstrument('synth', SYNTH_CONFIG)
@@ -468,29 +476,65 @@ function EarTrainer() {
     setContextEpoch(e => e + 1)
   }, [ensureFreshAudioContext])
 
-  const verifyPlaybackStarted = useCallback((playbackToken, before) => {
+  const verifyPlaybackStarted = useCallback((playbackToken, before, isSoundDue = () => false) => {
     if (playbackWatchdogTimerRef.current) window.clearTimeout(playbackWatchdogTimerRef.current)
-    playbackWatchdogTimerRef.current = window.setTimeout(async () => {
-      if (playbackToken !== playbackTokenRef.current || document.visibilityState !== 'visible') return
-      const rawContext = Tone.context.rawContext
+    const tick = async () => {
+      if (playbackToken !== playbackTokenRef.current || document.visibilityState !== 'visible'
+          || playbackStateRef.current !== 'playing') return
+      const rawContext = Tone.getContext().rawContext
       const rawAdvanced = rawContext ? rawContext.currentTime > before.rawTime + 0.15 : false
-      const ticksAdvanced = Tone.Transport.ticks > before.transportTicks + 2
+      const ticksAdvanced = Tone.getTransport().ticks > before.transportTicks + 2
       const cursorAdvanced = cursorRef.current > before.cursorPosition + 0.001
-      if (Tone.context.state === 'running' && rawAdvanced && (ticksAdvanced || cursorAdvanced)) {
+      // iOS can leave a context reporting 'running' with dead output after a
+      // session interruption — a near-zero output level while the clock is
+      // demonstrably running AND a note should be sounding means the render
+      // graph is silently broken. A frozen clock or a musical rest must not
+      // trigger recovery — so the silence veto only runs on the first tick,
+      // right after start, when a note is known to be due. One read can still
+      // land in a gap, so re-sample once.
+      let audiblyAlive = true
+      if (before.checkSilence) {
+        audiblyAlive = !(rawAdvanced && isSoundDue()) || audioEngine.getOutputLevel() > 1e-4
+        if (!audiblyAlive) {
+          await new Promise(r => window.setTimeout(r, 250))
+          if (playbackToken !== playbackTokenRef.current) return
+          audiblyAlive = !isSoundDue() || audioEngine.getOutputLevel() > 1e-4
+        }
+      }
+      if (Tone.getContext().state === 'running' && rawAdvanced && (ticksAdvanced || cursorAdvanced) && audiblyAlive) {
         playbackRecoveryAttemptRef.current = 0
+        // Keep monitoring clock health while playing — iOS can kill the
+        // render thread mid-play; a frozen clock is unambiguous (silence is
+        // not, so it's skipped on periodic ticks).
+        before = {
+          rawTime: rawContext.currentTime,
+          transportTicks: Tone.getTransport().ticks,
+          cursorPosition: cursorRef.current,
+          checkSilence: false,
+        }
+        playbackWatchdogTimerRef.current = window.setTimeout(tick, 2000)
         return
       }
       // First: try a plain resume before rebuilding
       if (playbackRecoveryAttemptRef.current === 0) {
         playbackRecoveryAttemptRef.current = 1
         try {
-          if (Tone.context.state !== 'running') await resumeWithTimeout(Tone.context.resume())
+          if (Tone.getContext().state !== 'running') await resumeWithTimeout(Tone.getContext().resume())
           if (rawContext?.state !== 'running') await resumeWithTimeout(rawContext.resume())
           await new Promise(r => window.setTimeout(r, 200))
-          if (playbackToken !== playbackTokenRef.current) return
-          const nowAdvanced = Tone.context.rawContext ? Tone.context.rawContext.currentTime > rawContext.currentTime + 0.1 : false
-          if (Tone.context.state === 'running' && nowAdvanced && Tone.Transport.ticks > before.transportTicks + 2) {
+          if (playbackToken !== playbackTokenRef.current || playbackStateRef.current !== 'playing') return
+          const nowCtx = Tone.getContext().rawContext
+          const nowAdvanced = nowCtx && rawContext ? nowCtx.currentTime > rawContext.currentTime + 0.1 : false
+          const nowAudible = !(before.checkSilence && nowAdvanced && isSoundDue()) || audioEngine.getOutputLevel() > 1e-4
+          if (Tone.getContext().state === 'running' && nowAdvanced && nowAudible && Tone.getTransport().ticks > before.transportTicks + 2) {
             playbackRecoveryAttemptRef.current = 0
+            before = {
+              rawTime: nowCtx.currentTime,
+              transportTicks: Tone.getTransport().ticks,
+              cursorPosition: cursorRef.current,
+              checkSilence: false,
+            }
+            playbackWatchdogTimerRef.current = window.setTimeout(tick, 2000)
             return
           }
         } catch (_) {}
@@ -512,7 +556,8 @@ function EarTrainer() {
         stopPlayback()
         setError(`Playback recovery failed: ${err.message}`)
       }
-    }, 900)
+    }
+    playbackWatchdogTimerRef.current = window.setTimeout(tick, 900)
   }, [recoverAudioGraphForRetry, stopPlayback])
 
   // ── Play ─────────────────────────────────────────────────────────────────
@@ -538,42 +583,65 @@ function EarTrainer() {
 
       // Stale-context pre-check
       if (!resumeFromPause && playbackRecoveryAttemptRef.current === 0 && Date.now() - lastAudioReinitializedAtRef.current > STALE_AUDIO_REBUILD_MS) {
-        if (Tone.context.state === 'closed' || Tone.context.rawContext?.state === 'closed') {
+        if (Tone.getContext().state === 'closed' || Tone.getContext().rawContext?.state === 'closed') {
           await recoverAudioGraphForRetry(0)
         } else {
-          if (Tone.context.state !== 'running') await resumeWithTimeout(Tone.context.resume())
-          if (Tone.context.rawContext?.state !== 'running') await resumeWithTimeout(Tone.context.rawContext.resume())
+          if (Tone.getContext().state !== 'running') await resumeWithTimeout(Tone.getContext().resume())
+          if (Tone.getContext().rawContext?.state !== 'running') await resumeWithTimeout(Tone.getContext().rawContext.resume())
           lastAudioReinitializedAtRef.current = Date.now()
         }
       }
 
-      // If the context is still blocked (iOS 'interrupted'/suspended after
-      // backgrounding), rebuild it now — inside the user gesture — instead of
-      // scheduling notes into a dead context and relying on the watchdog.
-      if (isContextBlocked(Tone.context.state) || isContextBlocked(Tone.context.rawContext?.state)) {
-        await recoverAudioGraphForRetry(Math.max(1, playbackRecoveryAttemptRef.current))
-        if (isContextBlocked(Tone.context.state) || isContextBlocked(Tone.context.rawContext?.state)) {
+      // Engine-level health check INSIDE the gesture, BEFORE we bind anything:
+      // rebuilds on stale (>20min)/closed/blocked contexts — including iOS
+      // 'interrupted', which resume() can never escape (its promise hangs
+      // forever). Doing it here means the context we bind below is final;
+      // letting it happen inside audioEngine.start() would swap the context
+      // AFTER the GranularPlayer + scheduled notes bound to the old one.
+      const active = await audioEngine.ensureActive({ loadDefaultPiano: false })
+      if (active.contextChanged || lastRawContextRef.current !== active.rawContext) {
+        lastRawContextRef.current = active.rawContext
+        setContextEpoch(e => e + 1)
+      }
+      setIsInitialized(true)
+
+      // Last-resort guard: still blocked after ensureActive's rebuild. A
+      // gesture-resume already failed, so retrying resume on this context is
+      // pointless — always swap (attempt>=2) for a fresh in-gesture context.
+      if (isContextBlocked(Tone.getContext().state) || isContextBlocked(Tone.getContext().rawContext?.state)) {
+        await recoverAudioGraphForRetry(Math.max(2, playbackRecoveryAttemptRef.current + 1))
+        if (isContextBlocked(Tone.getContext().state) || isContextBlocked(Tone.getContext().rawContext?.state)) {
           throw new Error('Audio is still blocked — tap Play again.')
         }
       }
       const playbackToken = playbackTokenRef.current
       // Read the context AFTER any recovery — a rebuild may have swapped it.
-      const audioContext = Tone.context.rawContext
+      const audioContext = Tone.getContext().rawContext
       if (!audioEngine.isInitialized) {
         await audioEngine.initialize({ loadDefaultPiano: false })
         await audioEngine.loadInstrument('synth', SYNTH_CONFIG)
         setIsInitialized(true)
       }
 
-      // Initialize the audio player against the current context
+      // Rebind the audio player when the context was swapped. initialize()
+      // handles the context change itself — it stops playback, drops the
+      // stale worklet/gain and clears _loadedBuffer so the buffer is re-sent.
+      // (Nulling fields by hand here used to bypass that cleanup, leaving a
+      // worklet bound to the dead context playing into a disconnected gain.)
       if (audioPlayerRef.current && audioPlayerRef.current.audioContext !== audioContext) {
-        try { audioPlayerRef.current.gainNode?.disconnect() } catch (_) {}
-        audioPlayerRef.current.audioContext = null
-        audioPlayerRef.current.workletReady = false
+        try { await audioPlayerRef.current.initialize(audioContext) } catch (_) {}
       }
-      if (audioPlayerRef.current && !audioPlayerRef.current.audioContext) {
-        await audioPlayerRef.current.initialize(audioContext)
-      }
+      // Tap the reference-audio output into the silence watchdog's analyser.
+      // SAC-wrapped connect() accepts the call without wiring the underlying
+      // native nodes (the analyser then reads silence while audio plays) —
+      // connect the native nodes directly.
+      try {
+        const g = audioPlayerRef.current?.gainNode
+        const an = audioEngine.outputAnalyser
+        const tapSrc = g?._nativeAudioNode ?? g
+        const tapDst = an?._nativeAudioNode ?? an
+        if (tapSrc && tapDst) tapSrc.connect?.(tapDst)
+      } catch (_) {}
       if (playbackToken !== playbackTokenRef.current) return
 
       const { settings: s, notes, chordsNotes, keyEvents } = sec
@@ -611,9 +679,9 @@ function EarTrainer() {
       audioEngine.clearScheduledNotes()
       audioEngine.setLoopEnabledBeats(false, regionBeats)
       audioEngine.setTempo(s.tempo * speedRef.current, s.timeSignature)
-      Tone.Transport.timeSignature = beatsPerBarFromTimeSignature(s.timeSignature)
-      audioEngine.totalTicks = Math.round(regionBeats * Tone.Transport.PPQ)
-      Tone.Transport.position = `${Math.round(resumeRegionBeat * Tone.Transport.PPQ)}i`
+      Tone.getTransport().timeSignature = beatsPerBarFromTimeSignature(s.timeSignature)
+      audioEngine.totalTicks = Math.round(regionBeats * Tone.getTransport().PPQ)
+      Tone.getTransport().position = `${Math.round(resumeRegionBeat * Tone.getTransport().PPQ)}i`
 
       // MIDI notes for the selected source
       let midiNotes = []
@@ -637,8 +705,9 @@ function EarTrainer() {
 
       const playbackStartedFrom = {
         rawTime: audioContext?.currentTime || 0,
-        transportTicks: Tone.Transport.ticks,
+        transportTicks: Tone.getTransport().ticks,
         cursorPosition: cursorRef.current,
+        checkSilence: true,
       }
       await audioEngine.start(resumeRegionBeat)
       playbackStartTimeRef.current = Tone.now() - resumeRegionBeat * 60 / effectiveTempo
@@ -675,8 +744,19 @@ function EarTrainer() {
         )
       }
 
+      playbackStateRef.current = 'playing'
       setPlaybackState('playing')
-      verifyPlaybackStarted(playbackToken, playbackStartedFrom)
+      // Silence detection: full-song audio and drones sound continuously; for
+      // MIDI sources a note must be due at the sampled cursor position —
+      // a rest must not be mistaken for dead output. cursorRef is a 0..1
+      // section fraction; midiNotes[].start is region-relative beats.
+      const expectsContinuous = src === 'full' || src === 'melody-drone' || src === 'chords-drone'
+      const isSoundDue = () => {
+        if (expectsContinuous) return true
+        const posBeats = cursorRef.current * totalBeats - startBeat
+        return midiNotes.some(n => posBeats >= n.start - 0.05 && posBeats <= n.start + n.duration + 0.2)
+      }
+      verifyPlaybackStarted(playbackToken, playbackStartedFrom, isSoundDue)
     } catch (err) {
       console.error('Playback failed:', err)
       stopPlayback()
@@ -727,16 +807,20 @@ function EarTrainer() {
   useEffect(() => {
     const handleHidden = () => {
       if (playbackState === 'playing') pausePlayback()
-      // Release the lock-screen banner + let iOS reclaim the context while
-      // backgrounded; handleVisible restores 'playback' and resumes.
+      // 'ambient' drops Now-Playing eligibility — the lock-screen banner
+      // dismisses as soon as playback isn't running. iOS suspends the context
+      // itself once the session deactivates; we deliberately do NOT suspend()
+      // it here — a manual suspend races the OS's own interruption handling
+      // and can leave the context stuck dead after a quick away-and-back.
       try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
       try { navigator.mediaSession && (navigator.mediaSession.playbackState = 'none') } catch (_) {}
-      try { Tone.context.rawContext?.suspend?.() } catch (_) {}
     }
     const handleVisible = async () => {
-      try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
-      const toneState = Tone.context.state
-      const rawState = Tone.context.rawContext?.state
+      // NOTE: do not set audioSession.type='playback' here — 'playback' is only
+      // set inside real user gestures (play/keyboard) so the lock-screen banner
+      // is never eligible while nothing is playing.
+      const toneState = Tone.getContext().state
+      const rawState = Tone.getContext().rawContext?.state
       if (toneState === 'closed' || rawState === 'closed') {
         stopPlayback()
         setShowResumeOverlay(true)
@@ -746,9 +830,9 @@ function EarTrainer() {
         // resume() without a user gesture may be ignored on iOS — try anyway
         // (helps Android/desktop); if it doesn't take, play() verifies the
         // state and rebuilds inside the next user gesture.
-        await resumeWithTimeout(Tone.context.resume(), 800)
-        if (Tone.context.rawContext && isContextBlocked(Tone.context.rawContext.state)) {
-          await resumeWithTimeout(Tone.context.rawContext.resume(), 800)
+        await resumeWithTimeout(Tone.getContext().resume(), 800)
+        if (Tone.getContext().rawContext && isContextBlocked(Tone.getContext().rawContext.state)) {
+          await resumeWithTimeout(Tone.getContext().rawContext.resume(), 800)
         }
       }
       lastAudioReinitializedAtRef.current = Date.now()
@@ -760,7 +844,6 @@ function EarTrainer() {
     const handlePageHide = () => {
       if (playbackState === 'playing') stopPlayback()
       try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
-      try { Tone.context.rawContext?.suspend?.() } catch (_) {}
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('pageshow', handleVisible)
@@ -773,6 +856,30 @@ function EarTrainer() {
       window.removeEventListener('pagehide', handlePageHide)
     }
   }, [stopPlayback, pausePlayback, playbackState])
+
+  // Auto-heal when an iOS audio-session interruption ends while the app is
+  // visible: the context transitions 'interrupted' → 'suspended', at which
+  // point a resume usually succeeds even without a gesture. Re-attached per
+  // context (contextEpoch bumps on every swap).
+  useEffect(() => {
+    const raw = Tone.getContext()?.rawContext
+    const native = raw?._nativeContext ?? raw
+    if (!native?.addEventListener) return
+    let wasInterrupted = native.state === 'interrupted'
+    const onStateChange = () => {
+      const s = native.state
+      if (s === 'interrupted') { wasInterrupted = true; return }
+      if (wasInterrupted && s === 'suspended' && document.visibilityState === 'visible') {
+        wasInterrupted = false
+        resumeWithTimeout(Tone.getContext().resume(), 800)
+        if (native.resume) resumeWithTimeout(native.resume(), 800)
+        return
+      }
+      wasInterrupted = s === 'interrupted'
+    }
+    native.addEventListener('statechange', onStateChange)
+    return () => native.removeEventListener('statechange', onStateChange)
+  }, [contextEpoch])
 
   // ── Catalog + section loading ────────────────────────────────────────────
 
@@ -831,7 +938,7 @@ function EarTrainer() {
 
       // Decode audio in the background (does not block the UI)
       if (caps.audio && entry.assets.audio) {
-        const ctx = Tone.context.rawContext
+        const ctx = Tone.getContext().rawContext
         loadSectionAudio(entry, ctx, { signal: controller.signal })
           .then(async buffer => {
             if (token !== loadTokenRef.current) return
@@ -886,28 +993,17 @@ function EarTrainer() {
   }, [selected, loadSection])
 
   // After a context rebuild the GranularPlayer is bound to the dead context —
-  // re-decode the section audio so the Full Song source keeps working.
+  // rebind it in place. initialize() drops the stale worklet/gain and clears
+  // _loadedBuffer so the already-decoded buffer (AudioBuffers are
+  // context-independent) is re-sent on the next start. No re-decode or player
+  // replacement: replacing the ref mid-play would dispose a running player.
   useEffect(() => {
-    if (contextEpoch === 0 || !selected?.entry?.assets?.audio) return
-    const ctx = Tone.context.rawContext
-    if (!ctx || audioPlayerRef.current?.audioContext === ctx) return
-    const token = loadTokenRef.current
-    let cancelled = false
-    setAudioReady(false)
-    loadSectionAudio(selected.entry, ctx)
-      .then(async buffer => {
-        if (cancelled || token !== loadTokenRef.current) return
-        const player = new GranularPlayer()
-        player.loadBuffer(buffer)
-        try { await player.initialize(ctx) } catch (_) { /* fallback path still works */ }
-        if (cancelled || token !== loadTokenRef.current) { player.dispose(); return }
-        audioPlayerRef.current?.dispose()
-        audioPlayerRef.current = player
-        setAudioReady(true)
-      })
-      .catch(err => { if (!cancelled) console.warn('Audio re-decode failed:', err) })
-    return () => { cancelled = true }
-  }, [contextEpoch, selected])
+    if (contextEpoch === 0) return
+    const ctx = Tone.getContext().rawContext
+    const player = audioPlayerRef.current
+    if (!ctx || !player || player.audioContext === ctx) return
+    player.initialize(ctx).catch(err => console.warn('Audio player re-init failed:', err))
+  }, [contextEpoch])
 
   // Keep the play-time source in sync (stop playback when it changes)
   const sourceRef = useRef(source)
@@ -954,7 +1050,15 @@ function EarTrainer() {
 
   const playNoteOnClick = useCallback(async (note) => {
     try {
-      if (Tone.context.state !== 'running') await ensureFreshAudioContext()
+      if (Tone.getContext().state !== 'running' || Tone.getContext().rawContext?.state !== 'running') {
+        // Swap-capable recovery (handles iOS 'interrupted') — a bare resume
+        // can't escape an interrupted context.
+        const active = await audioEngine.ensureActive({ loadDefaultPiano: false })
+        if (lastRawContextRef.current !== active.rawContext) {
+          lastRawContextRef.current = active.rawContext
+          setContextEpoch(e => e + 1)
+        }
+      }
       audioPlayerRef.current?.stop()
       releaseActiveNotes(activeNotesRef)
       const us = userSettingsRef.current
@@ -971,7 +1075,7 @@ function EarTrainer() {
     } catch (err) {
       console.warn('Note audition failed:', err)
     }
-  }, [ensureFreshAudioContext, ensureInstrument, mode])
+  }, [ensureInstrument, mode])
 
   // ── Transcription keyboard ───────────────────────────────────────────────
 
@@ -997,15 +1101,21 @@ function EarTrainer() {
   // On close: release held notes + the drone.
   useEffect(() => {
     if (!keyboardOpen) return
-    ensureFreshAudioContext()
-      .then(() => ensureInstrument(userSettingsRef.current.melodyInstrument))
+    audioEngine.ensureActive({ loadDefaultPiano: false })
+      .then(({ rawContext }) => {
+        if (lastRawContextRef.current !== rawContext) {
+          lastRawContextRef.current = rawContext
+          setContextEpoch(e => e + 1)
+        }
+        return ensureInstrument(userSettingsRef.current.melodyInstrument)
+      })
       .catch(() => {})
     return () => {
       audioEngine.stopAllLiveNotes()
       audioEngine.stopDrone()
       setKbDroneOn(false)
     }
-  }, [keyboardOpen, ensureFreshAudioContext, ensureInstrument])
+  }, [keyboardOpen, ensureInstrument])
 
   const handleResumeFromOverlay = useCallback(async () => {
     setShowResumeOverlay(false)
