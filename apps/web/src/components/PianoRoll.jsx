@@ -263,18 +263,17 @@ function PianoRoll({
   // devicePixelRatio as state: browser zoom / moving the window to another
   // display changes it, and every snap/quantization must track it.
   const [dprRaw, setDprRaw] = useState(() => dprNow())
-  // Canvas landing correction: the viewport-anchored canvas composites at a
-  // constant page position; if that position isn't on the device-pixel grid
-  // (fractional DPR, fractional page padding) the GPU resamples the bitmap.
-  // Measured lazily in the RAF tick — never a forced layout per frame.
-  const landAdjRef = useRef(0)
-  const landAdjStaleRef = useRef(true)
   useEffect(() => {
     const mq = window.matchMedia(`(resolution: ${dprRaw}dppx)`)
-    const onChange = () => { landAdjStaleRef.current = true; setDprRaw(dprNow()) }
+    const onChange = () => setDprRaw(dprNow())
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
   }, [dprRaw])
+  // Timestamp of the last scroll event — the RAF tick snaps a fractional
+  // scrollLeft onto the device grid once scrolling has been idle for a beat.
+  // Covers Safari's scroll restoration on reload, which can land fractional
+  // without ever firing a scroll event.
+  const lastScrollEventAtRef = useRef(0)
 
   const beatsPerBar = beatsPerBarFromTimeSignature(timeSignature)
   const beatsPerDivision = beatsPerDivisionFromTimeDivision(timeDivision, timeSignature)
@@ -343,32 +342,21 @@ function PianoRoll({
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    let snapTimer = 0
     const onScroll = () => {
+      lastScrollEventAtRef.current = performance.now()
       const sl = el.scrollLeft
       scrollLeftPxRef.current = sl
       // Clamp the state so during a rubber-band overscroll the canvas draw
       // slice stays consistent with the DOM grid instead of detaching.
       const max = Math.max(0, el.scrollWidth - el.clientWidth)
       setScrollLeft(Math.min(Math.max(0, sl), max))
-      // Once scrolling settles, snap to a whole DEVICE pixel: a fractional
-      // scroll offset composites the ENTIRE scroll layer (DOM labels and
-      // canvas alike) at a sub-pixel position → everything blurs. CSS-px
-      // rounding is insufficient at fractional DPR (125%/150% desktop
-      // scaling, non-integer Android DPRs) where integer CSS px land
-      // between device pixels — the blur then persists forever.
-      window.clearTimeout(snapTimer)
-      snapTimer = window.setTimeout(() => {
-        const snapped = snapDev(el.scrollLeft)
-        if (Math.abs(el.scrollLeft - snapped) > 0.01 / dprNow()) el.scrollLeft = snapped
-      }, 120)
     }
-    const onResize = () => { setViewportWidth(el.getBoundingClientRect().width); landAdjStaleRef.current = true }
+    const onResize = () => setViewportWidth(el.getBoundingClientRect().width)
     onResize()
     const ro = new ResizeObserver(onResize)
     ro.observe(el)
     el.addEventListener('scroll', onScroll, { passive: true })
-    return () => { ro.disconnect(); el.removeEventListener('scroll', onScroll); window.clearTimeout(snapTimer) }
+    return () => { ro.disconnect(); el.removeEventListener('scroll', onScroll) }
   }, [])
 
   // ── Ctrl/Cmd + wheel zoom ────────────────────────────────────
@@ -420,22 +408,30 @@ function PianoRoll({
       // Clamp so the canvas rides with the DOM grid through any residual
       // rubber-band overscroll instead of pinning to the scrollport.
       const sl = el ? Math.min(Math.max(0, el.scrollLeft), Math.max(0, el.scrollWidth - el.clientWidth)) : 0
-      if (canvasRef.current) {
-        // Measure the resting landing error once per layout — the element
-        // is glued to the scrollport so its visual left is a page-layout
-        // constant; snap that onto the device-pixel grid and keep the
-        // correction in the transform. Skipped while rubber-banding (sl
-        // clamped away from real scrollLeft) so a transient can't poison it.
-        if (landAdjStaleRef.current && el && Math.abs(el.scrollLeft - sl) < 0.5) {
-          const rect = canvasRef.current.getBoundingClientRect()
-          const dpr = dprNow()
-          landAdjRef.current = Math.round(rect.left * dpr) / dpr - rect.left
-          landAdjStaleRef.current = false
-        }
-        const tx = sl + landAdjRef.current
+      if (canvasRef.current && el) {
+        // Pin the canvas onto the device-pixel grid directly: its pinned
+        // page-left is the scroller's own left + the 44px label column, and
+        // the scroller is never transformed so this measurement can't be
+        // poisoned by a previously applied transform (the old cached
+        // correction re-measured the canvas rect WITH its transform on and
+        // could lock in a permanently misaligned value — the source of the
+        // sometimes-blurry-on-reload bug). Reading the scroller rect costs
+        // one clean-layout lookup per frame.
+        const pinnedLeft = el.getBoundingClientRect().left + 44
+        const tx = snapDev(pinnedLeft + sl) - pinnedLeft
         if (tx !== lastSl) {
           canvasRef.current.style.transform = `translateX(${tx}px)`
           lastSl = tx
+        }
+        // Idle settle: a fractional scrollLeft composites the ENTIRE scroll
+        // layer (DOM labels + canvas) at a sub-pixel offset → blur. Safari
+        // can restore a fractional offset on reload without firing a scroll
+        // event, so the guard lives in the RAF tick and only fires after
+        // scrolling has been quiet for a moment (never mid-momentum).
+        if (performance.now() - lastScrollEventAtRef.current > 120) {
+          const dpr = dprNow()
+          const dev = el.scrollLeft * dpr
+          if (Math.abs(dev - Math.round(dev)) > 0.05) el.scrollLeft = snapDev(el.scrollLeft)
         }
       }
       const frac = cursorRef?.current ?? 0
@@ -541,6 +537,12 @@ function PianoRoll({
   const tapInfo = useRef(null)
   const handleCanvasPointerDown = useCallback((e) => {
     tapInfo.current = { x: e.clientX, y: e.clientY, t: performance.now() }
+    // Capture so pointerup always reaches the canvas even if the finger
+    // slides onto an overlay element (guides, handles) before release.
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch (_) {}
+  }, [])
+  const handleCanvasPointerCancel = useCallback(() => {
+    tapInfo.current = null
   }, [])
   const handleCanvasPointerUp = useCallback((e) => {
     const info = tapInfo.current
@@ -635,6 +637,7 @@ function PianoRoll({
             style={{ left: 0, top: BAR_LABEL_HEIGHT, touchAction: 'pan-x pan-y', willChange: 'transform' }}
             onPointerDown={handleCanvasPointerDown}
             onPointerUp={handleCanvasPointerUp}
+            onPointerCancel={handleCanvasPointerCancel}
           />
 
           {/* Region guide lines */}

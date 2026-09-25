@@ -183,7 +183,7 @@ function cancelPendingAudioNotes(pendingRef) {
  * sustain one drone across loops; multi-key sections re-voice at each key
  * boundary (and per loop iteration).
  */
-function scheduleDroneSegments({ keyEvents, startBeat, regionBeats, resumeRegionBeat, tempo, droneDb, looping, timerRef }) {
+function scheduleDroneSegments({ keyEvents, startBeat, regionBeats, resumeRegionBeat, tempo, droneDb, looping, timerRef, droneKeyRef, keepCurrentKey }) {
   const msPerBeat = 60000 / tempo
   const events = keyEvents?.length ? keyEvents : [{ beat: 0, key: 'C' }]
   const segs = []
@@ -194,13 +194,22 @@ function scheduleDroneSegments({ keyEvents, startBeat, regionBeats, resumeRegion
   }
   if (!segs.length) segs.push({ start: 0, end: regionBeats, key: events[0].key })
 
+  // Voice a segment — records the key so a resume-from-pause can tell
+  // whether the still-sounding drone already matches the resume point.
+  const voice = (seg, beats) => {
+    audioEngine.scheduleDroneNotes(seg.key, beats, droneDb)
+    if (droneKeyRef) droneKeyRef.current = seg.key
+  }
+  // The segment containing the resume point is skipped when the surviving
+  // drone is already in that key — re-attacking it would be an audible bump.
+  const isResumeSeg = (seg, origin) => seg.start <= origin && seg.end > origin
+
   if (!looping || segs.length === 1) {
     for (const seg of segs) {
       if (seg.end <= resumeRegionBeat) continue
+      if (keepCurrentKey && seg.key === keepCurrentKey && isResumeSeg(seg, resumeRegionBeat)) continue
       const delay = Math.max(0, (seg.start - resumeRegionBeat) * msPerBeat)
-      timerRef.current.push(window.setTimeout(() => {
-        audioEngine.scheduleDroneNotes(seg.key, seg.end - seg.start, droneDb)
-      }, delay))
+      timerRef.current.push(window.setTimeout(() => voice(seg, seg.end - seg.start), delay))
     }
     return
   }
@@ -213,11 +222,10 @@ function scheduleDroneSegments({ keyEvents, startBeat, regionBeats, resumeRegion
     const base = iter * regionBeats
     for (const seg of segs) {
       if (iter === 0 && seg.end <= origin) continue
+      if (iter === 0 && keepCurrentKey && seg.key === keepCurrentKey && isResumeSeg(seg, origin)) continue
       const absStart = base + Math.max(seg.start, iter === 0 ? origin : seg.start)
       const delay = Math.max(0, t0 + (absStart - origin) * msPerBeat - performance.now())
-      timerRef.current.push(window.setTimeout(() => {
-        audioEngine.scheduleDroneNotes(seg.key, regionBeats - seg.start, droneDb)
-      }, delay))
+      timerRef.current.push(window.setTimeout(() => voice(seg, regionBeats - seg.start), delay))
     }
     const nextBoundary = (iter + 1) * regionBeats
     const msToNext = t0 + (nextBoundary - origin) * msPerBeat - performance.now() - 250
@@ -326,6 +334,9 @@ function EarTrainer() {
   const playbackStartTimeRef = useRef(0)
   const currentRegionRef = useRef({ startBeat: 0, regionBeats: 0, effectiveTempo: 120 })
   const dronePlayingRef = useRef(false)
+  // Key of the currently-sounding drone voice — lets a resume-from-pause
+  // keep the drone running instead of re-attacking when the key matches.
+  const droneKeyRef = useRef(null)
   const lastAudioReinitializedAtRef = useRef(Date.now())
   const playbackWatchdogTimerRef = useRef(null)
   const playbackRecoveryAttemptRef = useRef(0)
@@ -442,9 +453,11 @@ function EarTrainer() {
     if (playbackWatchdogTimerRef.current) { window.clearTimeout(playbackWatchdogTimerRef.current); playbackWatchdogTimerRef.current = null }
     cancelPendingAudioNotes(notePendingRef)
     audioEngine.pause({ releaseActiveNotes: false })
-    audioEngine.stopDrone()
+    // The drone keeps sounding while paused — its synth layers are
+    // free-running (not transport-bound), only stopPlayback() should end
+    // them. dronePlayingRef stays true so resume re-arms future key-change
+    // segments without re-attacking the current voice.
     setKbDroneOn(false)
-    dronePlayingRef.current = false
     releaseActiveNotes(activeNotesRef)
     audioPlayerRef.current?.stop()
     try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
@@ -717,7 +730,12 @@ function EarTrainer() {
         stopTimerRef.current = window.setTimeout(() => stopPlayback({ keepSeek: true }), Math.max(0, (remainingBeats / effectiveTempo) * 60000 + 250))
       }
 
-      if ((src === 'melody-drone' || src === 'chords-drone') && (!resumeFromPause || !dronePlayingRef.current)) {
+      if (src === 'melody-drone' || src === 'chords-drone') {
+        // When resuming with the drone still sounding through the pause,
+        // keepCurrentKey tells the scheduler to skip re-voicing the segment
+        // under the resume point (unless its key actually changed) while
+        // still arming all future key-change boundaries.
+        const keepCurrentKey = resumeFromPause && dronePlayingRef.current ? droneKeyRef.current : null
         scheduleDroneSegments({
           keyEvents,
           startBeat,
@@ -727,6 +745,8 @@ function EarTrainer() {
           droneDb: us.droneVolume,
           looping: isLoopingRef.current,
           timerRef: noteTimersRef,
+          droneKeyRef,
+          keepCurrentKey,
         })
         dronePlayingRef.current = true
       }
@@ -1050,28 +1070,41 @@ function EarTrainer() {
 
   const playNoteOnClick = useCallback(async (note) => {
     try {
-      if (Tone.getContext().state !== 'running' || Tone.getContext().rawContext?.state !== 'running') {
-        // Swap-capable recovery (handles iOS 'interrupted') — a bare resume
-        // can't escape an interrupted context.
-        const active = await audioEngine.ensureActive({ loadDefaultPiano: false })
-        if (lastRawContextRef.current !== active.rawContext) {
-          lastRawContextRef.current = active.rawContext
-          setContextEpoch(e => e + 1)
-        }
+      // Always run the full ensure — a 'running' context says nothing about
+      // engine init or whether instruments survived a context swap, which is
+      // how a bare getPlayer() returned null and note clicks silently failed.
+      const active = await audioEngine.ensureActive({ loadDefaultPiano: false })
+      if (active?.rawContext && lastRawContextRef.current !== active.rawContext) {
+        lastRawContextRef.current = active.rawContext
+        setContextEpoch(e => e + 1)
       }
       audioPlayerRef.current?.stop()
       releaseActiveNotes(activeNotesRef)
       const us = userSettingsRef.current
       const inst = mode === 'harmony' ? us.chordsInstrument : us.melodyInstrument
-      ensureInstrument(inst)
+      // Await the load so a freshly-selected sampler actually plays instead
+      // of falling back to (or missing) the default.
+      await ensureInstrument(inst)
       const player = audioEngine.getPlayer(inst)
       if (!player) return
-      player.triggerAttack(note.note, Tone.now(), Math.min(Math.max(note.velocity ?? 0.8, 0), 1))
-      const sec = sectionRef.current
-      const durSec = Math.max(0.3, (note.duration ?? 1) * 60 / ((sec?.settings.tempo || 120) * speedRef.current))
+      const vel = Math.min(Math.max(note.velocity ?? 0.8, 0), 1)
+      // Constant ~1s audition on the audio clock — independent of the
+      // note's notated length, tempo, speed setting and wall-clock timers.
+      // triggerAttackRelease binds the release to this voice, so rapid
+      // re-clicks of the same note can't be cut short by a stale release.
+      if (player.triggerAttackRelease) {
+        player.triggerAttackRelease(note.note, 1.0, Tone.now(), vel)
+      } else {
+        player.triggerAttack(note.note, Tone.now(), vel)
+        try { player.triggerRelease?.(note.note, Tone.now() + 1.0) } catch (_) {}
+      }
+      // ensureActive set the session to 'playback' — hand it back to
+      // 'ambient' once the audition ends so Now-Playing can't linger.
       window.setTimeout(() => {
-        try { player.triggerRelease?.(note.note, Tone.now()) } catch (_) {}
-      }, durSec * 1000)
+        if (playbackStateRef.current !== 'playing') {
+          try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
+        }
+      }, 1100)
     } catch (err) {
       console.warn('Note audition failed:', err)
     }
