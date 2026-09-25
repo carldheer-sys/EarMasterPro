@@ -251,6 +251,7 @@ function PianoRoll({
   onSeek,
 }) {
   const scrollRef = useRef(null)
+  const wrapRef = useRef(null)
   const canvasRef = useRef(null)
   const gridRef = useRef(null)
   const playheadRef = useRef(null)
@@ -360,9 +361,11 @@ function PianoRoll({
   }, [])
 
   // ── Ctrl/Cmd + wheel zoom ────────────────────────────────────
+  // Attached to the wrapper: the canvas overlay sits outside the scroller,
+  // so wheel events over it would otherwise never reach the listener.
   // Non-passive listener so we can preventDefault the browser/page zoom.
   useEffect(() => {
-    const el = scrollRef.current
+    const el = wrapRef.current
     if (!el || !onZoom) return
     const onWheel = (e) => {
       if (!(e.ctrlKey || e.metaKey)) return
@@ -402,35 +405,31 @@ function PianoRoll({
   useEffect(() => {
     let raf
     let last = -1
-    let lastSl = -1
+    let lastTx = -1
     let lastTy = -1
     const tick = () => {
       const el = scrollRef.current
-      // Clamp so the canvas rides with the DOM grid through any residual
-      // rubber-band overscroll instead of pinning to the scrollport.
-      const sl = el ? Math.min(Math.max(0, el.scrollLeft), Math.max(0, el.scrollWidth - el.clientWidth)) : 0
       if (canvasRef.current && el) {
-        // Pin the canvas onto the device-pixel grid directly: its pinned
-        // page-left is the scroller's own left + the 44px label column, and
-        // the scroller is never transformed so this measurement can't be
-        // poisoned by a previously applied transform (the old cached
-        // correction re-measured the canvas rect WITH its transform on and
-        // could lock in a permanently misaligned value — the source of the
-        // sometimes-blurry-on-reload bug). Reading the scroller rect costs
-        // one clean-layout lookup per frame.
+        // The canvas lives OUTSIDE the scroll layer (sibling overlay pinned to
+        // the scrollport) so its composite position carries NO scroll term —
+        // only a static sub-pixel landing correction. The previous
+        // in-scroller translate snapped the CONTENT-space point
+        // pinnedLeft + scrollLeft: the composite landed at
+        // snapDev(pinnedLeft+sl) - sl — device-integral only when
+        // scrollLeft·dpr was integral, which is essentially never on iOS
+        // (CGFloat contentOffsets). Every fractional resting scroll offset
+        // resampled the whole bitmap — the persistent blur.
         const srect = el.getBoundingClientRect()
         const pinnedLeft = srect.left + 44
-        const tx = snapDev(pinnedLeft + sl) - pinnedLeft
-        // Same pinning on Y: the canvas sits 22px below the grid top — snap
-        // its visual top onto the device grid too (fractional-DPR displays,
-        // fractional page offsets).
+        const tx = snapDev(pinnedLeft) - pinnedLeft
         const pinnedTop = srect.top + BAR_LABEL_HEIGHT
         const ty = snapDev(pinnedTop) - pinnedTop
-        if (tx !== lastSl || ty !== lastTy) {
+        if (tx !== lastTx || ty !== lastTy) {
           canvasRef.current.style.transform = `translate(${tx}px, ${ty}px)`
-          lastSl = tx
+          lastTx = tx
           lastTy = ty
         }
+
         // Idle settle: a fractional scrollLeft composites the ENTIRE scroll
         // layer (DOM labels + canvas) at a sub-pixel offset → blur. Safari
         // can restore a fractional offset on reload without firing a scroll
@@ -557,10 +556,11 @@ function PianoRoll({
     tapInfo.current = null
     if (!info || performance.now() - info.t > 350) return
     if (Math.hypot(e.clientX - info.x, e.clientY - info.y) > 8) return
-    const rect = canvasRef.current?.getBoundingClientRect()
+    const rect = e.currentTarget?.getBoundingClientRect()
     if (!rect) return
-    // Canvas is viewport-anchored: local x + scrollLeft → grid-space x
-    const x = e.clientX - rect.left + scrollLeft
+    // The gesture surface lives inside the scrolled grid — its local
+    // coordinates ARE grid coordinates.
+    const x = e.clientX - rect.left
     const y = e.clientY - rect.top
     const beat = (x / gridWidth) * totalBeats
     // Note hit-test first
@@ -575,7 +575,7 @@ function PianoRoll({
       }
     }
     onSeek?.(Math.max(0, Math.min(totalBeats, beat)))
-  }, [gridWidth, totalBeats, notes, beatWidth, highestNote, cellH, scrollLeft, onNoteClick, onSeek])
+  }, [gridWidth, totalBeats, notes, beatWidth, highestNote, cellH, onNoteClick, onSeek])
 
   const regionStartPx = snapDev(regionStart * gridWidth)
   const regionEndPx = snapDev(regionEnd * gridWidth)
@@ -587,8 +587,9 @@ function PianoRoll({
   }, [highestNote, lowestNote])
 
   return (
-    <div ref={scrollRef} className="overflow-x-auto overflow-y-hidden" style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
-      <div className="flex" style={{ width: 44 + gridWidth, height: gridHeight + BAR_LABEL_HEIGHT }}>
+    <div ref={wrapRef} className="relative" style={{ isolation: 'isolate' }}>
+      <div ref={scrollRef} className="overflow-x-auto overflow-y-hidden" style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
+        <div className="flex" style={{ width: 44 + gridWidth, height: gridHeight + BAR_LABEL_HEIGHT }}>
         {/* Sticky pitch labels */}
         <div className={`sticky left-0 z-20 shrink-0 border-r ${isDark ? 'border-slate-700 bg-slate-950' : 'border-slate-300 bg-slate-100'}`} style={{ width: 44, marginTop: BAR_LABEL_HEIGHT }}>
           {noteRange.map(name => (
@@ -634,15 +635,13 @@ function PianoRoll({
             ))}
           </div>
 
-          {/* Canvas — viewport-sized layer, glued to the scrollport by a
-              transform updated in the RAF loop (see below). Rendering only
-              the visible slice keeps every repaint small: a full-width
-              canvas (~18k px at DPR 3 on long sections) both exceeds iOS
-              canvas limits and turns every scroll tick into a huge repaint. */}
-          <canvas
-            ref={canvasRef}
+          {/* Transparent gesture surface for taps/seeks over the note area —
+              the canvas itself is the pointer-transparent overlay below.
+              Pan gestures still scroll natively because this lives inside
+              the scroller. */}
+          <div
             className="absolute"
-            style={{ left: 0, top: BAR_LABEL_HEIGHT, touchAction: 'pan-x pan-y', willChange: 'transform' }}
+            style={{ left: 0, right: 0, top: BAR_LABEL_HEIGHT, bottom: 0, touchAction: 'pan-x pan-y' }}
             onPointerDown={handleCanvasPointerDown}
             onPointerUp={handleCanvasPointerUp}
             onPointerCancel={handleCanvasPointerCancel}
@@ -655,7 +654,22 @@ function PianoRoll({
           {/* Playhead */}
           <div ref={playheadRef} className="absolute bottom-0 w-[3px] bg-amber-400 z-30 pointer-events-none" style={{ top: BAR_LABEL_HEIGHT, left: 0, opacity: 0, boxShadow: '0 0 10px rgba(250,190,36,0.8)', willChange: 'transform' }} />
         </div>
+        </div>
       </div>
+
+      {/* Canvas — compositing-pinned overlay OUTSIDE the scroll layer. A
+          fixed HUD-style layer that never carries a scroll term in its
+          composite position, so no fractional scroll offset can resample
+          the bitmap; the RAF tick applies only a static sub-pixel landing
+          correction. Rendering just the visible slice (viewport-sized
+          bitmap redrawn per scrollLeft) keeps repaints small — a full-width
+          canvas (~18k px at dpr 3 on long sections) exceeds iOS canvas
+          limits and turns every scroll tick into a huge repaint. */}
+      <canvas
+        ref={canvasRef}
+        className="absolute pointer-events-none z-10"
+        style={{ left: 44, top: BAR_LABEL_HEIGHT }}
+      />
     </div>
   )
 }
