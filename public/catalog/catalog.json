@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-24T21:49:54.595Z",
+  "generatedAt": "2026-09-25T03:05:36.957Z",
   "artists": [
     {
       "name": "Alex Warren",
@@ -636,6 +636,216 @@
     {
       "name": "Twenty One Pilots",
       "songs": [
+        {
+          "title": "Chlorine",
+          "folder": "Twenty One Pilots - Chlorine",
+          "transcription": "/catalog/Twenty%20One%20Pilots%20-%20Chlorine/chlorine-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Twenty One Pilots - Chlorine/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "Bb",
+              "keyMode": "Minor",
+              "tempo": 90,
+              "internalBpm": 90,
+              "timeSignature": "4/4",
+              "bars": 8,
+              "melodyNotes": 37,
+              "chordNotes": 18,
+              "assets": {
+                "session": "/catalog/Twenty%20One%20Pilots%20-%20Chlorine/verse/session.eartrainer.json",
+                "melody": "/catalog/Twenty%20One%20Pilots%20-%20Chlorine/verse/melody.mid",
+                "chords": "/catalog/Twenty%20One%20Pilots%20-%20Chlorine/verse/chords.mid",
+                "audio": "/catalog/Twenty%20One%20Pilots%20-%20Chlorine/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Twenty One Pilots - Chlorine/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "Bb",
+              "keyMode": "Minor",
+              "tempo": 90,
+              "internalBpm": 90,
+              "timeSignature": "4/4",
+              "bars": 8,
+              "melodyNotes": 54,
+              "chordNotes": 30,
+              "assets": {
+                "session": "/catalog/Twenty%20One%20Pilots%20-%20Chlorine/chorus/session.eartrainer.json",
+                "melody": "/catalog/Twenty%20One%20Pilots%20-%20Chlorine/chorus/melody.mid",
+                "chords": "/catalog/Twenty%20One%20Pilots%20-%20Chlorine/chorus/chords.mid",
+                "audio": "/catalog/Twenty%20One%20Pilots%20-%20Chlorine/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "City Walls",
+          "folder": "Twenty One Pilots - City Walls",
+          "transcription": "/catalog/Twenty%20One%20Pilots%20-%20City%20Walls/city-walls-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Twenty One Pilots - City Walls/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "B",
+              "keyMode": "Minor",
+              "tempo": 94,
+              "internalBpm": 94,
+              "timeSignature": "4/4",
+              "bars": 12,
+              "melodyNotes": 52,
+              "chordNotes": 42,
+              "assets": {
+                "session": "/catalog/Twenty%20One%20Pilots%20-%20City%20Walls/chorus/session.eartrainer.json",
+                "melody": "/catalog/Twenty%20One%20Pilots%20-%20City%20Walls/chorus/melody.mid",
+                "chords": "/catalog/Twenty%20One%20Pilots%20-%20City%20Walls/chorus/chords.mid",
+                "audio": "/catalog/Twenty%20One%20Pilots%20-%20City%20Walls/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "Navigating",
+          "folder": "Twenty One Pilots - Navigating",
+          "transcription": "/catalog/Twenty%20One%20Pilots%20-%20Navigating/navigating-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Twenty One Pilots - Navigating/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "D",
+              "keyMode": "Major",
+              "tempo": 166,
+              "internalBpm": 166,
+              "timeSignature": "4/4",
+              "bars": 16,
+              "melodyNotes": 51,
+              "chordNotes": 48,
+              "assets": {
+                "session": "/catalog/Twenty%20One%20Pilots%20-%20Navigating/chorus/session.eartrainer.json",
+                "melody": "/catalog/Twenty%20One%20Pilots%20-%20Navigating/chorus/melody.mid",
+                "chords": "/catalog/Twenty%20One%20Pilots%20-%20Navigating/chorus/chords.mid",
+                "audio": "/catalog/Twenty%20One%20Pilots%20-%20Navigating/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "Next Semester",
+          "folder": "Twenty One Pilots - Next Semester",
+          "transcription": "/catalog/Twenty%20One%20Pilots%20-%20Next%20Semester/next-semester-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Twenty One Pilots - Next Semester/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "A",
+              "keyMode": "Major",
+              "tempo": 175,
+              "internalBpm": 175,
+              "timeSignature": "4/4",
+              "bars": 18,
+              "melodyNotes": 63,
+              "chordNotes": 90,
+              "assets": {
+                "session": "/catalog/Twenty%20One%20Pilots%20-%20Next%20Semester/verse/session.eartrainer.json",
+                "melody": "/catalog/Twenty%20One%20Pilots%20-%20Next%20Semester/verse/melody.mid",
+                "chords": "/catalog/Twenty%20One%20Pilots%20-%20Next%20Semester/verse/chords.mid",
+                "audio": "/catalog/Twenty%20One%20Pilots%20-%20Next%20Semester/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Twenty One Pilots - Next Semester/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "E",
+              "keyMode": "Major",
+              "tempo": 175,
+              "internalBpm": 175,
+              "timeSignature": "4/4",
+              "bars": 16,
+              "melodyNotes": 42,
+              "chordNotes": 56,
+              "assets": {
+                "session": "/catalog/Twenty%20One%20Pilots%20-%20Next%20Semester/chorus/session.eartrainer.json",
+                "melody": "/catalog/Twenty%20One%20Pilots%20-%20Next%20Semester/chorus/melody.mid",
+                "chords": "/catalog/Twenty%20One%20Pilots%20-%20Next%20Semester/chorus/chords.mid",
+                "audio": "/catalog/Twenty%20One%20Pilots%20-%20Next%20Semester/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "RAWFEAR",
+          "folder": "Twenty One Pilots - RAWFEAR",
+          "transcription": "/catalog/Twenty%20One%20Pilots%20-%20RAWFEAR/rawfear-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Twenty One Pilots - RAWFEAR/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "A",
+              "keyMode": "Major",
+              "tempo": 108,
+              "internalBpm": 108,
+              "timeSignature": "4/4",
+              "bars": 4,
+              "melodyNotes": 24,
+              "chordNotes": 20,
+              "assets": {
+                "session": "/catalog/Twenty%20One%20Pilots%20-%20RAWFEAR/chorus/session.eartrainer.json",
+                "melody": "/catalog/Twenty%20One%20Pilots%20-%20RAWFEAR/chorus/melody.mid",
+                "chords": "/catalog/Twenty%20One%20Pilots%20-%20RAWFEAR/chorus/chords.mid",
+                "audio": "/catalog/Twenty%20One%20Pilots%20-%20RAWFEAR/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
         {
           "title": "The Line",
           "folder": "Twenty One Pilots - The Line",
