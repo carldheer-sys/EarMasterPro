@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Tone from 'tone'
 import { BookOpen, Eye, EyeOff, FileText, Hash, Headphones, Keyboard, Loader2, Lock, Moon, Pause, Play, Repeat, Settings, Square, Sun, Type, Minus, Plus } from 'lucide-react'
-import audioEngine, { INSTRUMENT_CONFIGS, isContextBlocked, resumeWithTimeout, swapToneContext } from '@common/lib/audioEngine'
+import audioEngine, { INSTRUMENT_CONFIGS, isContextBlocked, isPreActivationBlockedContext, resumeWithTimeout, swapToneContext } from '@common/lib/audioEngine'
 import { GranularPlayer } from '@common/lib/granularPlayer'
 import {
   beatsPerBarFromTimeSignature,
@@ -386,18 +386,26 @@ function EarTrainer() {
       resetAudioStateAfterContextChange()
       swapToneContext(latencyHint)
     }
-    const rawContext = Tone.getContext().rawContext
     if (start) {
+      // A context born before the first user gesture can leave resume()
+      // pending forever — swap it while the gesture is still live rather than
+      // burning the activation window on three sequential resume timeouts.
+      if (navigator.userActivation?.isActive && isPreActivationBlockedContext()) {
+        resetAudioStateAfterContextChange()
+        swapToneContext(latencyHint)
+      }
       // resume() can hang forever on iOS interrupted contexts — never await bare
       await resumeWithTimeout(Tone.start())
       if (Tone.getContext().state !== 'running') await resumeWithTimeout(Tone.getContext().resume())
-      if (rawContext?.state !== 'running') await resumeWithTimeout(rawContext.resume())
-      if (Tone.getContext().state === 'closed' || rawContext?.state === 'closed') {
+      const curRaw = Tone.getContext().rawContext
+      if (curRaw?.state !== 'running') await resumeWithTimeout(curRaw.resume())
+      if (Tone.getContext().state === 'closed' || curRaw?.state === 'closed') {
         throw new Error('Audio context could not be reopened.')
       }
-    } else if (Tone.getContext().state === 'closed' || rawContext?.state === 'closed') {
+    } else if (Tone.getContext().state === 'closed' || Tone.getContext().rawContext?.state === 'closed') {
       swapToneContext(latencyHint)
     }
+    const rawContext = Tone.getContext().rawContext
     const contextChanged = Boolean(lastRawContextRef.current && lastRawContextRef.current !== rawContext)
     if (contextChanged) {
       resetAudioStateAfterContextChange()
@@ -460,7 +468,16 @@ function EarTrainer() {
     setKbDroneOn(false)
     releaseActiveNotes(activeNotesRef)
     audioPlayerRef.current?.stop()
-    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
+    // Session type follows audibility: while a drone is sounding the session
+    // must stay 'playback' — 'ambient' respects the iPhone mute switch and
+    // would silence it (which is why a note click seemed to "bring it back":
+    // ensureActive re-set 'playback'). Without a drone nothing is audible,
+    // so 'ambient' still dismisses the Now-Playing banner.
+    try {
+      if (navigator.audioSession) {
+        navigator.audioSession.type = dronePlayingRef.current ? 'playback' : 'ambient'
+      }
+    } catch (_) {}
     try { if (navigator.mediaSession) navigator.mediaSession.playbackState = 'none' } catch (_) {}
     playbackStateRef.current = 'paused'
     setPlaybackState('paused')
@@ -623,6 +640,17 @@ function EarTrainer() {
       // pointless — always swap (attempt>=2) for a fresh in-gesture context.
       if (isContextBlocked(Tone.getContext().state) || isContextBlocked(Tone.getContext().rawContext?.state)) {
         await recoverAudioGraphForRetry(Math.max(2, playbackRecoveryAttemptRef.current + 1))
+        // Poll briefly before giving up: a freshly-swapped context can take
+        // a few hundred ms to flip suspended → running even after resume()
+        // resolves — throwing immediately would force a pointless re-tap.
+        const unblockDeadline = Date.now() + 900
+        while (Date.now() < unblockDeadline) {
+          const toneBlocked = isContextBlocked(Tone.getContext().state)
+          const rawBlocked = isContextBlocked(Tone.getContext().rawContext?.state)
+          if (!toneBlocked && !rawBlocked) break
+          await new Promise(r => window.setTimeout(r, 80))
+          try { await resumeWithTimeout(Tone.getContext().resume(), 250) } catch (_) {}
+        }
         if (isContextBlocked(Tone.getContext().state) || isContextBlocked(Tone.getContext().rawContext?.state)) {
           throw new Error('Audio is still blocked — tap Play again.')
         }
@@ -1099,9 +1127,10 @@ function EarTrainer() {
         try { player.triggerRelease?.(note.note, Tone.now() + 1.0) } catch (_) {}
       }
       // ensureActive set the session to 'playback' — hand it back to
-      // 'ambient' once the audition ends so Now-Playing can't linger.
+      // 'ambient' once the audition ends so Now-Playing can't linger, unless
+      // a paused drone is still sounding (it needs 'playback' to be audible).
       window.setTimeout(() => {
-        if (playbackStateRef.current !== 'playing') {
+        if (playbackStateRef.current !== 'playing' && !dronePlayingRef.current) {
           try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
         }
       }, 1100)
@@ -1219,7 +1248,7 @@ function EarTrainer() {
       <div className={`mx-auto flex min-h-full max-w-5xl flex-col gap-3 px-3 pt-3 sm:px-5 ${keyboardOpen ? 'pb-44' : 'pb-6'}`}>
 
         {/* ── Header ── */}
-        <header className={`rounded-3xl border p-4 shadow-xl backdrop-blur-xl ${card}`}>
+        <header className={`rounded-3xl border p-4 shadow-xl ${card}`}>
           {/* Mobile: buttons on their own row, then artist/title/meta each on a
               full-width line. Desktop (sm+): catalog | centered text | actions. */}
           <div className="flex flex-wrap items-start gap-x-3 gap-y-2 sm:flex-nowrap">
@@ -1295,7 +1324,7 @@ function EarTrainer() {
         </header>
 
         {/* ── Transport controls ── */}
-        <section className={`rounded-3xl border p-3 shadow-xl backdrop-blur-xl ${card}`}>
+        <section className={`rounded-3xl border p-3 shadow-xl ${card}`}>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             {/* Source selector */}
             <div className={`grid flex-1 grid-cols-3 gap-1 rounded-2xl border p-1 ${isDark ? 'border-white/10 bg-slate-950/60' : 'border-slate-300 bg-slate-100'}`}>
@@ -1354,7 +1383,7 @@ function EarTrainer() {
         </section>
 
         {/* ── Piano roll ── */}
-        <section className={`rounded-3xl border p-2 shadow-xl backdrop-blur-xl sm:p-3 ${card}`}>
+        <section className={`rounded-3xl border p-2 shadow-xl sm:p-3 ${card}`}>
           <PianoRoll
             notes={displayNotes}
             annotations={session?.chordAnnotations || []}

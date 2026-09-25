@@ -79,6 +79,17 @@ export function isContextBlocked(state) {
 // sticky). Such pre-activation contexts can report 'running' while their
 // render thread never starts (headless builds; iOS after restores).
 let contextCreatedPreActivation = true
+
+/**
+ * Whether the current context was born before the first user gesture and is
+ * currently blocked. resume() on such a context can stay pending forever —
+ * inside a live gesture the reliable move is to swap it immediately rather
+ * than burn the transient-activation window on resume timeouts.
+ */
+export function isPreActivationBlockedContext() {
+  return contextCreatedPreActivation
+    && (isContextBlocked(Tone.getContext().state) || isContextBlocked(Tone.getContext().rawContext?.state))
+}
 // Whether the current context's clock has been observed advancing — i.e. it
 // has demonstrably rendered audio, not just reported 'running'.
 let contextRenderProven = false
@@ -366,6 +377,18 @@ class AudioEngine {
       contextChanged = contextChanged || this.rawContext !== rawBefore
     } else if (this.rawContext && this.rawContext !== Tone.getContext().rawContext) {
       this.dispose()
+      await this.initialize({ loadDefaultPiano, latencyHint })
+      contextChanged = true
+    }
+
+    // A context created before the first user gesture can leave resume()
+    // pending forever (iOS 'interrupted'; also cold audio services). Inside a
+    // live gesture the reliable move is to swap it out immediately — a fresh
+    // in-gesture context starts running in ~100ms — rather than waiting out
+    // the 1.5s resume timeout below on a context that can never answer.
+    if (navigator.userActivation?.isActive && isPreActivationBlockedContext()) {
+      this.dispose()
+      swapToneContext(latencyHint)
       await this.initialize({ loadDefaultPiano, latencyHint })
       contextChanged = true
     }

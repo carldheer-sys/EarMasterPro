@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-25T18:17:35.940Z",
+  "generatedAt": "2026-09-25T19:08:58.112Z",
   "artists": [
     {
       "name": "Alex Warren",
@@ -621,6 +621,43 @@
                 "melody": "/catalog/Taylor%20Swift%20-%20The%20Fate%20of%20Ophelia/chorus/melody.mid",
                 "chords": "/catalog/Taylor%20Swift%20-%20The%20Fate%20of%20Ophelia/chorus/chords.mid",
                 "audio": "/catalog/Taylor%20Swift%20-%20The%20Fate%20of%20Ophelia/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "The Warning",
+      "songs": [
+        {
+          "title": "Evolve",
+          "folder": "The Warning - Evolve",
+          "transcription": "/catalog/The%20Warning%20-%20Evolve/evolve-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "The Warning - Evolve/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "A",
+              "keyMode": "Minor",
+              "tempo": 175,
+              "internalBpm": 175,
+              "timeSignature": "4/4",
+              "bars": 18,
+              "melodyNotes": 27,
+              "chordNotes": 33,
+              "assets": {
+                "session": "/catalog/The%20Warning%20-%20Evolve/chorus/session.eartrainer.json",
+                "melody": "/catalog/The%20Warning%20-%20Evolve/chorus/melody.mid",
+                "chords": "/catalog/The%20Warning%20-%20Evolve/chorus/chords.mid",
+                "audio": "/catalog/The%20Warning%20-%20Evolve/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,

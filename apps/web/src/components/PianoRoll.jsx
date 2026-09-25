@@ -403,6 +403,7 @@ function PianoRoll({
     let raf
     let last = -1
     let lastSl = -1
+    let lastTy = -1
     const tick = () => {
       const el = scrollRef.current
       // Clamp so the canvas rides with the DOM grid through any residual
@@ -417,11 +418,18 @@ function PianoRoll({
         // could lock in a permanently misaligned value — the source of the
         // sometimes-blurry-on-reload bug). Reading the scroller rect costs
         // one clean-layout lookup per frame.
-        const pinnedLeft = el.getBoundingClientRect().left + 44
+        const srect = el.getBoundingClientRect()
+        const pinnedLeft = srect.left + 44
         const tx = snapDev(pinnedLeft + sl) - pinnedLeft
-        if (tx !== lastSl) {
-          canvasRef.current.style.transform = `translateX(${tx}px)`
+        // Same pinning on Y: the canvas sits 22px below the grid top — snap
+        // its visual top onto the device grid too (fractional-DPR displays,
+        // fractional page offsets).
+        const pinnedTop = srect.top + BAR_LABEL_HEIGHT
+        const ty = snapDev(pinnedTop) - pinnedTop
+        if (tx !== lastSl || ty !== lastTy) {
+          canvasRef.current.style.transform = `translate(${tx}px, ${ty}px)`
           lastSl = tx
+          lastTy = ty
         }
         // Idle settle: a fractional scrollLeft composites the ENTIRE scroll
         // layer (DOM labels + canvas) at a sub-pixel offset → blur. Safari
@@ -464,9 +472,9 @@ function PianoRoll({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx._cellH = cellH
-    // Cap 3: the viewport-sized canvas stays small (~1–2 Mpx) even at dpr 3 —
-    // the old cap of 2 dated from the full-width canvas that hit iOS limits.
-    const dpr = Math.min(dprRaw, 3)
+    // Cap 4: the viewport-sized canvas stays small (~1–2 Mpx) even at dpr 4 —
+    // the old cap dated from the full-width canvas that hit iOS limits.
+    const dpr = Math.min(dprRaw, 4)
     const cssW = Math.min(Math.max(0, viewportWidth - 44), gridWidth)
     if (cssW <= 0) return
     const bw = Math.round(cssW * dpr)
