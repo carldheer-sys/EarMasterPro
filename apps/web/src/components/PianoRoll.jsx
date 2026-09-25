@@ -6,6 +6,21 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 const BAR_LABEL_HEIGHT = 22
 const BEAT_WIDTH_BASE = 40
 
+// ── Device-pixel alignment ─────────────────────────────────────
+// The piano roll blurs whenever anything lands on a fractional DEVICE
+// pixel: a fractional scroll offset resamples the whole scroll layer
+// (DOM + canvas), a fractional canvas transform resamples the bitmap,
+// and fill/stroke coordinates between device pixels produce soft edges.
+// CSS-pixel rounding is not enough — at fractional DPR (125%/150% OS
+// scaling, some Androids) an integer CSS px is still a fractional device
+// px, so everything below quantizes to the device-pixel grid.
+const dprNow = () => (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
+// Nearest device-pixel boundary — for fills, element positions, widths.
+const snapDev = (v, dpr = dprNow()) => Math.round(v * dpr) / dpr
+// Nearest device-pixel CENTER — for hairline strokes: a 1-device-px line
+// centered on a boundary straddles two pixels at 50% alpha each.
+const hairDev = (v, dpr) => (Math.round(v * dpr - 0.5) + 0.5) / dpr
+
 // Diatonic pitch-class sets (semitones from tonic)
 const DIATONIC = {
   Major: [0, 2, 4, 5, 7, 9, 11],
@@ -43,6 +58,9 @@ function isNoteDiatonic(midi, tonicPc, mode) {
 
 function renderGrid(ctx, { width, height, beatWidth, barStarts, totalBeats, lowestNote, highestNote, dpr, beatsPerDivision, isDark }) {
   const totalNotes = highestNote - lowestNote + 1
+  const cellH = ctx._cellH
+  const q = v => snapDev(v, dpr)
+  const hair = v => hairDev(v, dpr)
   ctx.clearRect(0, 0, width, height)
 
   const blackKeyBg = isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(180, 190, 210, 0.35)'
@@ -54,21 +72,22 @@ function renderGrid(ctx, { width, height, beatWidth, barStarts, totalBeats, lowe
 
   for (let i = 0; i < totalNotes; i++) {
     const midiNum = highestNote - i
-    const y = i * ctx._cellH
+    const y = i * cellH
     ctx.fillStyle = isBlackKey(midiNum) ? blackKeyBg : whiteKeyBg
-    ctx.fillRect(0, y, width, ctx._cellH)
+    ctx.fillRect(0, y, width, cellH)
+    const yh = hair(y + cellH)
     ctx.strokeStyle = rowLine
     ctx.lineWidth = 1 / dpr
     ctx.beginPath()
-    ctx.moveTo(0, y + ctx._cellH)
-    ctx.lineTo(width, y + ctx._cellH)
+    ctx.moveTo(0, yh)
+    ctx.lineTo(width, yh)
     ctx.stroke()
     if (midiNum % 12 === 0) {
       ctx.strokeStyle = cMarker
       ctx.lineWidth = 2 / dpr
       ctx.beginPath()
-      ctx.moveTo(0, y)
-      ctx.lineTo(0, y + ctx._cellH)
+      ctx.moveTo(0, q(y))
+      ctx.lineTo(0, q(y + cellH))
       ctx.stroke()
     }
   }
@@ -77,12 +96,13 @@ function renderGrid(ctx, { width, height, beatWidth, barStarts, totalBeats, lowe
   ctx.lineWidth = 2 / dpr
   ctx.beginPath()
   for (const bar of barStarts) {
-    const x = bar.start * beatWidth
+    const x = q(bar.start * beatWidth)
     ctx.moveTo(x, 0)
     ctx.lineTo(x, height)
   }
-  ctx.moveTo(totalBeats * beatWidth, 0)
-  ctx.lineTo(totalBeats * beatWidth, height)
+  const endX = q(totalBeats * beatWidth)
+  ctx.moveTo(endX, 0)
+  ctx.lineTo(endX, height)
   ctx.stroke()
 
   ctx.strokeStyle = divLine
@@ -93,7 +113,7 @@ function renderGrid(ctx, { width, height, beatWidth, barStarts, totalBeats, lowe
     const beat = divIndex * beatsPerDivision
     if (beat > totalBeats + 0.0001) continue
     if (barStarts.some(b => Math.abs(b.start - beat) < 0.0001)) continue
-    const x = beat * beatWidth
+    const x = hair(beat * beatWidth)
     ctx.moveTo(x, 0)
     ctx.lineTo(x, height)
   }
@@ -104,38 +124,50 @@ function renderNotes(ctx, { notes, beatWidth, cellH, lowestNote, highestNote, vi
   const buffer = 2
   const visible = notes.filter(n => n.start + n.duration >= viewportStartBeat - buffer && n.start <= viewportEndBeat + buffer)
   const cornerRadius = Math.min(3, cellH / 4)
+  const q = v => snapDev(v, dpr)
+  const inset = q(1.5)          // dev-px-aligned ~1.5 CSS-px note inset
+  const half = 0.5 / dpr        // stroke centers on dev-px centers → crisp rim
 
   for (const note of visible) {
     const midi = noteToMidi(note.note)
     if (midi < lowestNote || midi > highestNote) continue
-    const x = note.start * beatWidth
     const y = (highestNote - midi) * cellH
-    const w = Math.max(4, note.duration * beatWidth)
-    const h = cellH - 3
+    // Snap both edges to the device grid — a fractional edge ramps over ~1
+    // extra device px and reads as blur on every note.
+    const x0 = q(note.start * beatWidth)
+    const x1 = q(note.start * beatWidth + Math.max(4, note.duration * beatWidth))
+    const y0 = q(y + inset)
+    const y1 = q(y + inset + cellH - 3)
+    const w = x1 - x0
 
     const nonDiatonic = note.isNonDiatonic === true
-    ctx.beginPath()
-    ctx.moveTo(x + cornerRadius, y + 1.5)
-    ctx.lineTo(x + w - cornerRadius, y + 1.5)
-    ctx.quadraticCurveTo(x + w, y + 1.5, x + w, y + 1.5 + cornerRadius)
-    ctx.lineTo(x + w, y + 1.5 + h - cornerRadius)
-    ctx.quadraticCurveTo(x + w, y + 1.5 + h, x + w - cornerRadius, y + 1.5 + h)
-    ctx.lineTo(x + cornerRadius, y + 1.5 + h)
-    ctx.quadraticCurveTo(x, y + 1.5 + h, x, y + 1.5 + h - cornerRadius)
-    ctx.lineTo(x, y + 1.5 + cornerRadius)
-    ctx.quadraticCurveTo(x, y + 1.5, x + cornerRadius, y + 1.5)
-    ctx.closePath()
+    const rr = (l, t, rgt, b) => {
+      ctx.beginPath()
+      ctx.moveTo(l + cornerRadius, t)
+      ctx.lineTo(rgt - cornerRadius, t)
+      ctx.quadraticCurveTo(rgt, t, rgt, t + cornerRadius)
+      ctx.lineTo(rgt, b - cornerRadius)
+      ctx.quadraticCurveTo(rgt, b, rgt - cornerRadius, b)
+      ctx.lineTo(l + cornerRadius, b)
+      ctx.quadraticCurveTo(l, b, l, b - cornerRadius)
+      ctx.lineTo(l, t + cornerRadius)
+      ctx.quadraticCurveTo(l, t, l + cornerRadius, t)
+      ctx.closePath()
+    }
 
     if (nonDiatonic) {
       // Subtle red for non-diatonic notes
       ctx.fillStyle = isDark ? 'rgba(248, 113, 113, 0.85)' : 'rgba(220, 38, 38, 0.8)'
-      ctx.fill()
       ctx.strokeStyle = isDark ? 'rgba(248, 113, 113, 0.5)' : 'rgba(220, 38, 38, 0.5)'
     } else {
       ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.9)' : 'rgba(30, 64, 175, 0.85)'
-      ctx.fill()
       ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(30, 64, 175, 0.4)'
     }
+    rr(x0, y0, x1, y1)
+    ctx.fill()
+    // Stroke path inset by half a device px so the 1-dev-px rim sits inside
+    // the fill instead of straddling its edge.
+    rr(x0 + half, y0 + half, x1 - half, y1 - half)
     ctx.lineWidth = 1 / dpr
     ctx.stroke()
 
@@ -162,7 +194,7 @@ function renderNotes(ctx, { notes, beatWidth, cellH, lowestNote, highestNote, vi
         ctx.shadowColor = 'rgba(0, 0, 0, 0.8)'
         ctx.shadowBlur = 3
         ctx.shadowOffsetY = 1
-        ctx.fillText(label, x + w / 2, y - 6)
+        ctx.fillText(label, q(x0 + w / 2), q(y - 6))
         ctx.shadowColor = 'transparent'
         ctx.shadowBlur = 0
         ctx.shadowOffsetY = 0
@@ -171,10 +203,11 @@ function renderNotes(ctx, { notes, beatWidth, cellH, lowestNote, highestNote, vi
   }
 }
 
-function renderRegionOverlay(ctx, { width, height, regionStartPx, regionEndPx }) {
+function renderRegionOverlay(ctx, { width, height, regionStartPx, regionEndPx, dpr }) {
+  const q = v => snapDev(v, dpr)
   ctx.fillStyle = 'rgba(0, 0, 0, 0.38)'
-  if (regionStartPx > 0) ctx.fillRect(0, 0, regionStartPx, height)
-  if (regionEndPx < width) ctx.fillRect(regionEndPx, 0, width - regionEndPx, height)
+  if (regionStartPx > 0) ctx.fillRect(0, 0, q(regionStartPx), height)
+  if (regionEndPx < width) ctx.fillRect(q(regionEndPx), 0, width - q(regionEndPx), height)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -227,6 +260,21 @@ function PianoRoll({
   const scrollLeftPxRef = useRef(0)
   const [scrollLeft, setScrollLeft] = useState(0)
   const [viewportWidth, setViewportWidth] = useState(1000)
+  // devicePixelRatio as state: browser zoom / moving the window to another
+  // display changes it, and every snap/quantization must track it.
+  const [dprRaw, setDprRaw] = useState(() => dprNow())
+  // Canvas landing correction: the viewport-anchored canvas composites at a
+  // constant page position; if that position isn't on the device-pixel grid
+  // (fractional DPR, fractional page padding) the GPU resamples the bitmap.
+  // Measured lazily in the RAF tick — never a forced layout per frame.
+  const landAdjRef = useRef(0)
+  const landAdjStaleRef = useRef(true)
+  useEffect(() => {
+    const mq = window.matchMedia(`(resolution: ${dprRaw}dppx)`)
+    const onChange = () => { landAdjStaleRef.current = true; setDprRaw(dprNow()) }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [dprRaw])
 
   const beatsPerBar = beatsPerBarFromTimeSignature(timeSignature)
   const beatsPerDivision = beatsPerDivisionFromTimeDivision(timeDivision, timeSignature)
@@ -303,16 +351,19 @@ function PianoRoll({
       // slice stays consistent with the DOM grid instead of detaching.
       const max = Math.max(0, el.scrollWidth - el.clientWidth)
       setScrollLeft(Math.min(Math.max(0, sl), max))
-      // Once scrolling settles, snap to a whole CSS pixel: a fractional
+      // Once scrolling settles, snap to a whole DEVICE pixel: a fractional
       // scroll offset composites the ENTIRE scroll layer (DOM labels and
-      // canvas alike) at a sub-pixel position → everything blurs.
+      // canvas alike) at a sub-pixel position → everything blurs. CSS-px
+      // rounding is insufficient at fractional DPR (125%/150% desktop
+      // scaling, non-integer Android DPRs) where integer CSS px land
+      // between device pixels — the blur then persists forever.
       window.clearTimeout(snapTimer)
       snapTimer = window.setTimeout(() => {
-        const snapped = Math.round(el.scrollLeft)
-        if (Math.abs(el.scrollLeft - snapped) > 0.01) el.scrollLeft = snapped
+        const snapped = snapDev(el.scrollLeft)
+        if (Math.abs(el.scrollLeft - snapped) > 0.01 / dprNow()) el.scrollLeft = snapped
       }, 120)
     }
-    const onResize = () => setViewportWidth(el.getBoundingClientRect().width)
+    const onResize = () => { setViewportWidth(el.getBoundingClientRect().width); landAdjStaleRef.current = true }
     onResize()
     const ro = new ResizeObserver(onResize)
     ro.observe(el)
@@ -345,7 +396,7 @@ function PianoRoll({
     const el = scrollRef.current
     if (!el || prev === beatWidth) return
     const max = Math.max(0, el.scrollWidth - el.clientWidth)
-    const snapped = Math.min(Math.max(0, Math.round((scrollLeftPxRef.current / prev) * beatWidth)), max)
+    const snapped = Math.min(Math.max(0, snapDev((scrollLeftPxRef.current / prev) * beatWidth)), max)
     el.scrollLeft = snapped
     scrollLeftPxRef.current = snapped
   }, [beatWidth])
@@ -369,15 +420,26 @@ function PianoRoll({
       // Clamp so the canvas rides with the DOM grid through any residual
       // rubber-band overscroll instead of pinning to the scrollport.
       const sl = el ? Math.min(Math.max(0, el.scrollLeft), Math.max(0, el.scrollWidth - el.clientWidth)) : 0
-      // Keep the viewport-sized canvas glued to the scrollport (transform =
-      // compositor-only, no paint). +44 accounts for the sticky label column.
-      // transform = sl exactly so the element lands at an integer position.
-      if (canvasRef.current && sl !== lastSl) {
-        canvasRef.current.style.transform = `translateX(${sl}px)`
-        lastSl = sl
+      if (canvasRef.current) {
+        // Measure the resting landing error once per layout — the element
+        // is glued to the scrollport so its visual left is a page-layout
+        // constant; snap that onto the device-pixel grid and keep the
+        // correction in the transform. Skipped while rubber-banding (sl
+        // clamped away from real scrollLeft) so a transient can't poison it.
+        if (landAdjStaleRef.current && el && Math.abs(el.scrollLeft - sl) < 0.5) {
+          const rect = canvasRef.current.getBoundingClientRect()
+          const dpr = dprNow()
+          landAdjRef.current = Math.round(rect.left * dpr) / dpr - rect.left
+          landAdjStaleRef.current = false
+        }
+        const tx = sl + landAdjRef.current
+        if (tx !== lastSl) {
+          canvasRef.current.style.transform = `translateX(${tx}px)`
+          lastSl = tx
+        }
       }
       const frac = cursorRef?.current ?? 0
-      const px = frac * gridWidth
+      const px = snapDev(frac * gridWidth)
       if (playheadRef.current && px !== last) {
         playheadRef.current.style.transform = `translateX(${px}px)`
         playheadRef.current.style.opacity = px > 0 ? 0.95 : 0
@@ -387,7 +449,10 @@ function PianoRoll({
         const rel = px - el.scrollLeft
         const target = el.clientWidth * 0.35
         if (rel > target || rel < 0) {
-          el.scrollLeft = Math.max(0, px - target)
+          // Dev-px-snap the write so the DOM layer doesn't sit at a
+          // fractional offset for the entire playback (which would also
+          // keep the scroll-settle snap from ever firing).
+          el.scrollLeft = Math.max(0, snapDev(px - target))
         }
       }
       raf = requestAnimationFrame(tick)
@@ -405,7 +470,7 @@ function PianoRoll({
     ctx._cellH = cellH
     // Cap 3: the viewport-sized canvas stays small (~1–2 Mpx) even at dpr 3 —
     // the old cap of 2 dated from the full-width canvas that hit iOS limits.
-    const dpr = Math.min(window.devicePixelRatio || 1, 3)
+    const dpr = Math.min(dprRaw, 3)
     const cssW = Math.min(Math.max(0, viewportWidth - 44), gridWidth)
     if (cssW <= 0) return
     const bw = Math.round(cssW * dpr)
@@ -428,8 +493,8 @@ function PianoRoll({
 
     renderGrid(ctx, { width: gridWidth, height: gridHeight, beatWidth, barStarts: effectiveBarStarts, totalBeats, lowestNote, highestNote, dpr, beatsPerDivision, isDark })
     renderNotes(ctx, { notes: displayNotes, beatWidth, cellH, lowestNote, highestNote, viewportStartBeat: vpStart, viewportEndBeat: vpEnd, dpr, showAnswers, notation, isDark })
-    renderRegionOverlay(ctx, { width: gridWidth, height: gridHeight, regionStartPx: regionStart * gridWidth, regionEndPx: regionEnd * gridWidth })
-  }, [displayNotes, beatWidth, gridWidth, gridHeight, cellH, effectiveBarStarts, totalBeats, beatsPerDivision, lowestNote, highestNote, scrollLeft, viewportWidth, regionStart, regionEnd, showAnswers, notation, isDark])
+    renderRegionOverlay(ctx, { width: gridWidth, height: gridHeight, regionStartPx: regionStart * gridWidth, regionEndPx: regionEnd * gridWidth, dpr })
+  }, [displayNotes, beatWidth, gridWidth, gridHeight, cellH, effectiveBarStarts, totalBeats, beatsPerDivision, lowestNote, highestNote, scrollLeft, viewportWidth, regionStart, regionEnd, showAnswers, notation, isDark, dprRaw])
 
   // ── Region handle dragging (mouse + touch via pointer events) ──
   const regionDragCleanup = useRef(null)
@@ -502,8 +567,8 @@ function PianoRoll({
     onSeek?.(Math.max(0, Math.min(totalBeats, beat)))
   }, [gridWidth, totalBeats, notes, beatWidth, highestNote, cellH, scrollLeft, onNoteClick, onSeek])
 
-  const regionStartPx = regionStart * gridWidth
-  const regionEndPx = regionEnd * gridWidth
+  const regionStartPx = snapDev(regionStart * gridWidth)
+  const regionEndPx = snapDev(regionEnd * gridWidth)
 
   const noteRange = useMemo(() => {
     const r = []
@@ -531,14 +596,14 @@ function PianoRoll({
             {effectiveBarStarts.map((bar, i) => {
               const next = effectiveBarStarts[i + 1]?.start ?? totalBeats
               return (
-                <div key={i} className={`absolute flex items-center pl-1 text-[10px] font-semibold pointer-events-none ${isDark ? 'text-slate-400' : 'text-slate-500'}`} style={{ left: bar.start * beatWidth, width: Math.max(10, (next - bar.start) * beatWidth), height: '100%' }}>
+                <div key={i} className={`absolute flex items-center pl-1 text-[10px] font-semibold pointer-events-none ${isDark ? 'text-slate-400' : 'text-slate-500'}`} style={{ left: snapDev(bar.start * beatWidth), width: Math.max(10, (next - bar.start) * beatWidth), height: '100%' }}>
                   {i + 1}
                 </div>
               )
             })}
             {/* Key-change markers */}
             {(keyEvents || []).slice(1).map((ke, i) => (
-              <div key={`key-${i}`} className="absolute pointer-events-none" style={{ left: ke.beat * beatWidth, top: 0, height: '100%' }}>
+              <div key={`key-${i}`} className="absolute pointer-events-none" style={{ left: snapDev(ke.beat * beatWidth), top: 0, height: '100%' }}>
                 <div className="absolute top-0 bottom-0 w-px" style={{ background: 'rgba(168, 85, 247, 0.7)' }} />
                 <div className={`absolute top-0 whitespace-nowrap rounded px-1 text-[9px] font-bold ${isDark ? 'bg-purple-500/30 text-purple-200' : 'bg-purple-200 text-purple-800'}`} style={{ left: 14 }}>
                   → {ke.key} {ke.keyMode || ''}
@@ -552,7 +617,7 @@ function PianoRoll({
                 style={{ left: (which === 'start' ? regionStartPx : regionEndPx), width: 0, height: '100%', touchAction: 'none' }}
                 onPointerDown={(e) => startRegionDrag(e, which)}
               >
-                <div className="absolute top-0 bottom-0 pointer-events-none" style={{ left: -1.5, width: 3, background: 'rgba(56,189,248,0.9)', boxShadow: '0 0 5px rgba(56,189,248,0.6)' }} />
+                <div className="absolute top-0 bottom-0 pointer-events-none" style={{ left: -snapDev(1.5), width: 3, background: 'rgba(56,189,248,0.9)', boxShadow: '0 0 5px rgba(56,189,248,0.6)' }} />
                 <div className="absolute pointer-events-none" style={{ top: 0, left: -6, width: 12, height: 12, background: 'rgba(56,189,248,0.95)', borderRadius: '3px 3px 0 0' }} />
                 <div className="absolute top-0 bottom-0" style={{ left: -14, width: 28, touchAction: 'none' }} />
               </div>
