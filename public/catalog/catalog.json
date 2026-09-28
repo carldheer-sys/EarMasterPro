@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-25T21:56:38.953Z",
+  "generatedAt": "2026-09-28T15:48:40.622Z",
   "artists": [
     {
       "name": "Alex Warren",
@@ -445,6 +445,182 @@
                 "melody": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/melody.mid",
                 "chords": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/chords.mid",
                 "audio": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Olivia Dean",
+      "songs": [
+        {
+          "title": "Man I Need",
+          "folder": "Olivia Dean - Man I Need",
+          "transcription": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/man-i-need-verse-pre-chorus-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Olivia Dean - Man I Need/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "Db",
+              "keyMode": "Major",
+              "tempo": 119,
+              "internalBpm": 119,
+              "timeSignature": "4/4",
+              "bars": 16,
+              "melodyNotes": 66,
+              "chordNotes": 72,
+              "assets": {
+                "session": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/verse/session.eartrainer.json",
+                "melody": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/verse/melody.mid",
+                "chords": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/verse/chords.mid",
+                "audio": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Olivia Dean - Man I Need/pre-chorus",
+              "name": "pre-chorus",
+              "label": "Pre Chorus",
+              "key": "Db",
+              "keyMode": "Major",
+              "tempo": 119,
+              "internalBpm": 119,
+              "timeSignature": "4/4",
+              "bars": 8,
+              "melodyNotes": 43,
+              "chordNotes": 58,
+              "assets": {
+                "session": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/pre-chorus/session.eartrainer.json",
+                "melody": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/pre-chorus/melody.mid",
+                "chords": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/pre-chorus/chords.mid",
+                "audio": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/pre-chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Olivia Dean - Man I Need/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "Db",
+              "keyMode": "Major",
+              "tempo": 119,
+              "internalBpm": 119,
+              "timeSignature": "4/4",
+              "bars": 8,
+              "melodyNotes": 47,
+              "chordNotes": 36,
+              "assets": {
+                "session": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/chorus/session.eartrainer.json",
+                "melody": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/chorus/melody.mid",
+                "chords": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/chorus/chords.mid",
+                "audio": "/catalog/Olivia%20Dean%20-%20Man%20I%20Need/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "Nice To Each Other",
+          "folder": "Olivia Dean - Nice To Each Other",
+          "transcription": "/catalog/Olivia%20Dean%20-%20Nice%20To%20Each%20Other/nice-to-each-other-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Olivia Dean - Nice To Each Other/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "C",
+              "keyMode": "Major",
+              "tempo": 132,
+              "internalBpm": 132,
+              "timeSignature": "4/4",
+              "bars": 13,
+              "melodyNotes": 47,
+              "chordNotes": 42,
+              "assets": {
+                "session": "/catalog/Olivia%20Dean%20-%20Nice%20To%20Each%20Other/chorus/session.eartrainer.json",
+                "melody": "/catalog/Olivia%20Dean%20-%20Nice%20To%20Each%20Other/chorus/melody.mid",
+                "chords": "/catalog/Olivia%20Dean%20-%20Nice%20To%20Each%20Other/chorus/chords.mid",
+                "audio": "/catalog/Olivia%20Dean%20-%20Nice%20To%20Each%20Other/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "So Easy (To Fall in Love)",
+          "folder": "Olivia Dean - So Easy (To Fall in Love)",
+          "transcription": "/catalog/Olivia%20Dean%20-%20So%20Easy%20(To%20Fall%20in%20Love)/so-easy-to-fall-in-love-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Olivia Dean - So Easy (To Fall in Love)/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "Eb",
+              "keyMode": "Major",
+              "tempo": 140,
+              "internalBpm": 140,
+              "timeSignature": "4/4",
+              "bars": 8,
+              "melodyNotes": 38,
+              "chordNotes": 24,
+              "assets": {
+                "session": "/catalog/Olivia%20Dean%20-%20So%20Easy%20(To%20Fall%20in%20Love)/verse/session.eartrainer.json",
+                "melody": "/catalog/Olivia%20Dean%20-%20So%20Easy%20(To%20Fall%20in%20Love)/verse/melody.mid",
+                "chords": "/catalog/Olivia%20Dean%20-%20So%20Easy%20(To%20Fall%20in%20Love)/verse/chords.mid",
+                "audio": "/catalog/Olivia%20Dean%20-%20So%20Easy%20(To%20Fall%20in%20Love)/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Olivia Dean - So Easy (To Fall in Love)/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "C",
+              "keyMode": "Minor",
+              "tempo": 140,
+              "internalBpm": 140,
+              "timeSignature": "4/4",
+              "bars": 16,
+              "melodyNotes": 59,
+              "chordNotes": 60,
+              "assets": {
+                "session": "/catalog/Olivia%20Dean%20-%20So%20Easy%20(To%20Fall%20in%20Love)/chorus/session.eartrainer.json",
+                "melody": "/catalog/Olivia%20Dean%20-%20So%20Easy%20(To%20Fall%20in%20Love)/chorus/melody.mid",
+                "chords": "/catalog/Olivia%20Dean%20-%20So%20Easy%20(To%20Fall%20in%20Love)/chorus/chords.mid",
+                "audio": "/catalog/Olivia%20Dean%20-%20So%20Easy%20(To%20Fall%20in%20Love)/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,

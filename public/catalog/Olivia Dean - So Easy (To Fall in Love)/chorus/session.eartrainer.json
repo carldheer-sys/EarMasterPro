@@ -1,0 +1,1012 @@
+{
+  "version": "1.0",
+  "sessionName": "Olivia_Dean_So_Easy__To_Fall_in_Love__chorus",
+  "settings": {
+    "key": "C",
+    "keyMode": "Minor",
+    "tempo": 140,
+    "timeSignature": {
+      "numerator": 4,
+      "denominator": 4
+    },
+    "bars": 16,
+    "timeDivision": "1/4",
+    "playbackSpeed": 1,
+    "instrument": "piano",
+    "melodyMode": "pitches",
+    "backgroundTrack": "chords",
+    "melodyVolume": 0,
+    "backgroundVolume": -8,
+    "regionStart": 0,
+    "regionEnd": 1,
+    "isLooping": false
+  },
+  "notes": [
+    {
+      "id": "md655n7ar",
+      "note": "A#4",
+      "start": 0.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "rimcykzsa",
+      "note": "G#4",
+      "start": 0.5,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "yatdqat44",
+      "note": "G#4",
+      "start": 1.5,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "gc56etyq4",
+      "note": "G4",
+      "start": 2.5,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "1onipbyfr",
+      "note": "G#4",
+      "start": 3.5,
+      "duration": 3.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "e9vaczl6n",
+      "note": "G4",
+      "start": 6.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "9651zd4h5",
+      "note": "F4",
+      "start": 7.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "htgny5fz8",
+      "note": "G#4",
+      "start": 7.5,
+      "duration": 2.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "dgo94653h",
+      "note": "A#4",
+      "start": 10.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "ecvuluz9k",
+      "note": "G4",
+      "start": 11.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "n128ktvur",
+      "note": "G4",
+      "start": 11.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "kdb57j4kh",
+      "note": "G4",
+      "start": 12.0,
+      "duration": 2.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "5pbt8ob1h",
+      "note": "D#4",
+      "start": 15.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "wdwk1b9s3",
+      "note": "C5",
+      "start": 15.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "uk0gfi9yt",
+      "note": "A#4",
+      "start": 16.5,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "4z5qaau6j",
+      "note": "G#4",
+      "start": 17.5,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "yzfugofwh",
+      "note": "G4",
+      "start": 18.5,
+      "duration": 0.75,
+      "velocity": 0.8
+    },
+    {
+      "id": "gnum217op",
+      "note": "G#4",
+      "start": 19.5,
+      "duration": 2.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "edskr2uju",
+      "note": "G4",
+      "start": 22.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "qtfj3hbq6",
+      "note": "F4",
+      "start": 23.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "z007oshec",
+      "note": "G#4",
+      "start": 23.5,
+      "duration": 2.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "tjj64ub06",
+      "note": "G4",
+      "start": 26.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "chpbl553s",
+      "note": "D#4",
+      "start": 27.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "2kk8fttyr",
+      "note": "G4",
+      "start": 27.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "b6ka69e7x",
+      "note": "G4",
+      "start": 28.0,
+      "duration": 1.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "5kou247ye",
+      "note": "C4",
+      "start": 30.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "bhkdzox8e",
+      "note": "C4",
+      "start": 31.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "d1i1qe9pr",
+      "note": "C5",
+      "start": 31.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "iw252wfy4",
+      "note": "A#4",
+      "start": 32.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "m42xae8d4",
+      "note": "G#4",
+      "start": 33.5,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "31o5viv2h",
+      "note": "G4",
+      "start": 34.5,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "nd1kbtacv",
+      "note": "G#4",
+      "start": 36.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "rkgiufs5s",
+      "note": "G4",
+      "start": 37.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "48pac2lob",
+      "note": "F4",
+      "start": 37.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "naxm5go72",
+      "note": "G#4",
+      "start": 38.0,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "ripmehny8",
+      "note": "G4",
+      "start": 39.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "bz2dwi1pf",
+      "note": "F4",
+      "start": 39.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "n8dhih3lb",
+      "note": "D4",
+      "start": 40.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "uavlixfs6",
+      "note": "C4",
+      "start": 41.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "1bkgyh1ms",
+      "note": "A#3",
+      "start": 41.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "k93mjrn9w",
+      "note": "D4",
+      "start": 42.0,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "yj3716ejk",
+      "note": "C4",
+      "start": 43.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "gfs3ajun8",
+      "note": "A#3",
+      "start": 43.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "f072zmt6z",
+      "note": "G4",
+      "start": 44.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "pcgbia9sb",
+      "note": "F4",
+      "start": 45.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "rlz6d59fd",
+      "note": "D#4",
+      "start": 45.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "ost353uj4",
+      "note": "G4",
+      "start": 46.0,
+      "duration": 0.75,
+      "velocity": 0.8
+    },
+    {
+      "id": "p79gdcsnd",
+      "note": "F4",
+      "start": 46.75,
+      "duration": 0.25,
+      "velocity": 0.8
+    },
+    {
+      "id": "q66x688xf",
+      "note": "D#4",
+      "start": 47.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "86u1lssym",
+      "note": "F#4",
+      "start": 47.5,
+      "duration": 2.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "1b0c35jyu",
+      "note": "A#4",
+      "start": 52.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "qu6m3l3ga",
+      "note": "G4",
+      "start": 52.5,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "wxjqsq3yl",
+      "note": "D#4",
+      "start": 53.5,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "je6geqhc3",
+      "note": "C4",
+      "start": 54.5,
+      "duration": 3.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "0r28s9lfg",
+      "note": "C4",
+      "start": 59.5,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "rt1o66uut",
+      "note": "A#4",
+      "start": 60.0,
+      "duration": 0.5,
+      "velocity": 0.8
+    },
+    {
+      "id": "j056281rp",
+      "note": "G4",
+      "start": 60.5,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "tcwpbi7m3",
+      "note": "D4",
+      "start": 61.5,
+      "duration": 1.0,
+      "velocity": 0.8
+    },
+    {
+      "id": "2iu970xrz",
+      "note": "A#3",
+      "start": 62.5,
+      "duration": 1.5,
+      "velocity": 0.8
+    }
+  ],
+  "noteRange": {
+    "lowestNote": 42,
+    "highestNote": 78
+  },
+  "chordsNotes": [
+    {
+      "id": "1z9r7al7n",
+      "note": "F3",
+      "start": 4.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "zaftay7np",
+      "note": "G#3",
+      "start": 4.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "fulxro5q9",
+      "note": "C4",
+      "start": 4.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "7gbhu0p4r",
+      "note": "D#4",
+      "start": 4.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "ljn3zyxn6",
+      "note": "A#3",
+      "start": 7.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "fz3mkil0u",
+      "note": "D4",
+      "start": 7.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "5nblqzyyq",
+      "note": "F4",
+      "start": 7.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "cmm83elmg",
+      "note": "G#4",
+      "start": 7.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "csyn46aqq",
+      "note": "C3",
+      "start": 12.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "18c3tpc2j",
+      "note": "D#3",
+      "start": 12.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "vw0zxbo95",
+      "note": "G3",
+      "start": 12.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "dcqtxa4z0",
+      "note": "A#3",
+      "start": 12.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "9nxa3q3g9",
+      "note": "E3",
+      "start": 15.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "nvg6momfw",
+      "note": "G3",
+      "start": 15.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "xpfzlgcnl",
+      "note": "A#3",
+      "start": 15.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "y3e2ziiwy",
+      "note": "C4",
+      "start": 15.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "uy79ya2iq",
+      "note": "F3",
+      "start": 20.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "ff8x7zm6d",
+      "note": "G#3",
+      "start": 20.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "anew419kh",
+      "note": "C4",
+      "start": 20.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "gihtn1r4c",
+      "note": "D#4",
+      "start": 20.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "3xh5n5nfb",
+      "note": "A#3",
+      "start": 23.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "omyy4ny04",
+      "note": "D4",
+      "start": 23.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "qfdn9lirp",
+      "note": "F4",
+      "start": 23.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "fajfypar4",
+      "note": "G#4",
+      "start": 23.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "6kduncabv",
+      "note": "C3",
+      "start": 28.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "bvu4zctk1",
+      "note": "D#3",
+      "start": 28.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "95eb3m30p",
+      "note": "G3",
+      "start": 28.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "q12rlhbhw",
+      "note": "A#3",
+      "start": 28.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "qagrylv61",
+      "note": "E3",
+      "start": 31.5,
+      "duration": 3.0,
+      "velocity": 0.6
+    },
+    {
+      "id": "fene4q9i8",
+      "note": "G3",
+      "start": 31.5,
+      "duration": 3.0,
+      "velocity": 0.6
+    },
+    {
+      "id": "p9j93kg8n",
+      "note": "A#3",
+      "start": 31.5,
+      "duration": 3.0,
+      "velocity": 0.6
+    },
+    {
+      "id": "b66xlrv6b",
+      "note": "C4",
+      "start": 31.5,
+      "duration": 3.0,
+      "velocity": 0.6
+    },
+    {
+      "id": "s9zinlr5c",
+      "note": "E3",
+      "start": 34.5,
+      "duration": 1.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "9cxiw89mh",
+      "note": "G3",
+      "start": 34.5,
+      "duration": 1.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "5qivs90jv",
+      "note": "A#3",
+      "start": 34.5,
+      "duration": 1.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "3hmaq7y84",
+      "note": "C4",
+      "start": 34.5,
+      "duration": 1.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "jzjxw8vdq",
+      "note": "F3",
+      "start": 36.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "eao6vcmsw",
+      "note": "G#3",
+      "start": 36.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "pl5y3w5li",
+      "note": "C4",
+      "start": 36.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "r1707kx7k",
+      "note": "D#4",
+      "start": 36.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "pwf5vsh5f",
+      "note": "A#3",
+      "start": 39.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "wj3p0fwvq",
+      "note": "D4",
+      "start": 39.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "y7f6u1hhw",
+      "note": "F4",
+      "start": 39.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "uvbltzi0l",
+      "note": "G#4",
+      "start": 39.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "60wvjidvr",
+      "note": "C3",
+      "start": 44.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "c79wmvc65",
+      "note": "D#3",
+      "start": 44.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "wt3m1n4yz",
+      "note": "G3",
+      "start": 44.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "9pyj96wow",
+      "note": "A#3",
+      "start": 44.0,
+      "duration": 3.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "gvhr91zaf",
+      "note": "A3",
+      "start": 47.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "gr19baoh2",
+      "note": "C4",
+      "start": 47.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "3zo08gvq3",
+      "note": "D#4",
+      "start": 47.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "z0whhsujt",
+      "note": "F#4",
+      "start": 47.5,
+      "duration": 4.5,
+      "velocity": 0.6
+    },
+    {
+      "id": "83rfsjijv",
+      "note": "F3",
+      "start": 52.0,
+      "duration": 8.0,
+      "velocity": 0.6
+    },
+    {
+      "id": "d12woefih",
+      "note": "G#3",
+      "start": 52.0,
+      "duration": 8.0,
+      "velocity": 0.6
+    },
+    {
+      "id": "2g6kp4u7a",
+      "note": "C4",
+      "start": 52.0,
+      "duration": 8.0,
+      "velocity": 0.6
+    },
+    {
+      "id": "ktd4fjs8u",
+      "note": "D#4",
+      "start": 52.0,
+      "duration": 8.0,
+      "velocity": 0.6
+    },
+    {
+      "id": "38pbsmg3h",
+      "note": "G3",
+      "start": 60.0,
+      "duration": 4.0,
+      "velocity": 0.6
+    },
+    {
+      "id": "ewshnyc2e",
+      "note": "A#3",
+      "start": 60.0,
+      "duration": 4.0,
+      "velocity": 0.6
+    },
+    {
+      "id": "kxcdnxdvw",
+      "note": "D4",
+      "start": 60.0,
+      "duration": 4.0,
+      "velocity": 0.6
+    },
+    {
+      "id": "48xxkznq7",
+      "note": "F4",
+      "start": 60.0,
+      "duration": 4.0,
+      "velocity": 0.6
+    }
+  ],
+  "chordsNoteRange": {
+    "lowestNote": 42,
+    "highestNote": 74
+  },
+  "chordsInstrument": "piano",
+  "chordAnnotations": [
+    {
+      "start": 0.0,
+      "duration": 4.0,
+      "roman": "N.C.",
+      "label": "N.C.",
+      "isDiatonic": true
+    },
+    {
+      "start": 4.0,
+      "duration": 3.5,
+      "roman": "iv7",
+      "label": "Fm7",
+      "isDiatonic": true
+    },
+    {
+      "start": 7.5,
+      "duration": 4.5,
+      "roman": "bVII7",
+      "label": "Bb7",
+      "isDiatonic": true
+    },
+    {
+      "start": 12.0,
+      "duration": 3.5,
+      "roman": "i7",
+      "label": "Cm7",
+      "isDiatonic": true
+    },
+    {
+      "start": 15.5,
+      "duration": 4.5,
+      "roman": "I7/3",
+      "label": "C/E7",
+      "isDiatonic": false
+    },
+    {
+      "start": 20.0,
+      "duration": 3.5,
+      "roman": "iv7",
+      "label": "Fm7",
+      "isDiatonic": true
+    },
+    {
+      "start": 23.5,
+      "duration": 4.5,
+      "roman": "bVII7",
+      "label": "Bb7",
+      "isDiatonic": true
+    },
+    {
+      "start": 28.0,
+      "duration": 3.5,
+      "roman": "i7",
+      "label": "Cm7",
+      "isDiatonic": true
+    },
+    {
+      "start": 31.5,
+      "duration": 3.0,
+      "roman": "I7/3",
+      "label": "C/E7",
+      "isDiatonic": false
+    },
+    {
+      "start": 34.5,
+      "duration": 1.5,
+      "roman": "I7/3",
+      "label": "C/E7",
+      "isDiatonic": false
+    },
+    {
+      "start": 36.0,
+      "duration": 3.5,
+      "roman": "iv7",
+      "label": "Fm7",
+      "isDiatonic": true
+    },
+    {
+      "start": 39.5,
+      "duration": 4.5,
+      "roman": "bVII7",
+      "label": "Bb7",
+      "isDiatonic": true
+    },
+    {
+      "start": 44.0,
+      "duration": 3.5,
+      "roman": "i7",
+      "label": "Cm7",
+      "isDiatonic": true
+    },
+    {
+      "start": 47.5,
+      "duration": 4.5,
+      "roman": "vio",
+      "label": "Ao7",
+      "isDiatonic": false
+    },
+    {
+      "start": 52.0,
+      "duration": 8.0,
+      "roman": "iv7",
+      "label": "Fm7",
+      "isDiatonic": true
+    },
+    {
+      "start": 60.0,
+      "duration": 4.0,
+      "roman": "v7",
+      "label": "Gm7",
+      "isDiatonic": true
+    }
+  ],
+  "keyEvents": [
+    {
+      "beat": 0,
+      "key": "C",
+      "keyMode": "Minor"
+    }
+  ],
+  "meterEvents": [
+    {
+      "beat": 0,
+      "numerator": 4,
+      "denominator": 4
+    }
+  ],
+  "tempoEvents": [
+    {
+      "beat": 0,
+      "bpm": 140,
+      "internalBpm": 140
+    }
+  ],
+  "files": {
+    "midi": "melody.mid",
+    "vocals": "audio.mp3",
+    "drone": "",
+    "chordsMidi": "chords.mid",
+    "instrumentals": ""
+  }
+}

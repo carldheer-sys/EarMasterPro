@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { computeScaleDegrees } from '../apps/web/src/hooks/useScaleDegreeAnalysis.js'
-import { buildMeterTimeline, detectTimeDivision, keyAtBeat } from '@common/lib/midiUtils.js'
+import { buildMeterTimeline, detectTimeDivision, beatsPerDivisionFromTimeDivision, keyAtBeat } from '@common/lib/midiUtils.js'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import path from 'path'
@@ -113,5 +113,43 @@ describe('detectTimeDivision', () => {
     expect(detectTimeDivision(ord.notes)).toBe('1/8')
     expect(detectTimeDivision(line.notes)).toBe('1/16')
     expect(detectTimeDivision(line.chordsNotes)).toBe('1/4')
+  })
+
+  it('detects triplet grids — swung eighths and written triplets', () => {
+    // Swung eighths (swingFactor .66 baked to the .67 triplet slot)
+    const swung = [
+      { start: 0, duration: 0.67 }, { start: 0.67, duration: 0.33 },
+      { start: 2, duration: 0.67 }, { start: 2.67, duration: 0.33 },
+    ]
+    expect(detectTimeDivision(swung)).toBe('1/12')
+    // Written triplets at Hookpad's 2-decimal positions
+    const triplets = [
+      { start: 0, duration: 0.33 }, { start: 0.33, duration: 0.34 },
+      { start: 0.67, duration: 0.33 },
+    ]
+    expect(detectTimeDivision(triplets)).toBe('1/12')
+    // Mixed: straight sixteenth pickup + triplet beat (Man I Need chorus)
+    const mixed = [
+      { start: 0, duration: 1.33 }, { start: 1.33, duration: 0.34 },
+      { start: 1.67, duration: 0.33 }, { start: 9.25, duration: 0.25 },
+    ]
+    expect(detectTimeDivision(mixed)).toBe('1/12')
+    // Sixteenth-triplet positions need the finer triplet grid
+    const fine = [
+      { start: 0, duration: 1 / 6 }, { start: 1 / 6, duration: 1 / 6 },
+      { start: 1 / 3, duration: 1 / 6 },
+    ]
+    expect(detectTimeDivision(fine)).toBe('1/24')
+    // Binary content still resolves to binary divisions
+    expect(detectTimeDivision([{ start: 0, duration: 0.5 }, { start: 0.5, duration: 0.5 }]))
+      .toBe('1/8')
+    // Off-grid non-triplet content falls back to 1/32
+    expect(detectTimeDivision([{ start: 0.1, duration: 0.1 }])).toBe('1/32')
+  })
+
+  it('parses triplet divisions to quarter-beat spacing', () => {
+    expect(beatsPerDivisionFromTimeDivision('1/12')).toBeCloseTo(1 / 3, 6)
+    expect(beatsPerDivisionFromTimeDivision('1/24')).toBeCloseTo(1 / 6, 6)
+    expect(beatsPerDivisionFromTimeDivision('1/8')).toBe(0.5)
   })
 })

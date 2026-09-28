@@ -112,14 +112,28 @@ export function getMainBeatsPerBar(timeSignature) {
 /**
  * Detect the smallest time division needed to place every note start and end
  * exactly on the grid. Returns a '1/x' string compatible with
- * beatsPerDivisionFromTimeDivision ('1/4' | '1/8' | '1/16' | '1/32').
+ * beatsPerDivisionFromTimeDivision. Binary grids yield '1/4' … '1/32';
+ * triplet content (swung eighths baked to .67, written .33/.67 tuplets)
+ * yields '1/12' (eighth-triplet) or '1/24' (sixteenth-triplet).
  */
 export function detectTimeDivision(notes) {
   if (!notes || notes.length === 0) return '1/4'
-  const onGrid = (v, unit) => Math.abs(v / unit - Math.round(v / unit)) < 1e-3
+  const onGrid = (v, unit, eps = 1e-3) =>
+    Math.abs(v / unit - Math.round(v / unit)) < eps
+  const points = []
+  for (const n of notes) points.push(n.start, n.start + n.duration)
   for (const denom of [4, 8, 16, 32]) {
     const unit = 4 / denom // quarter-beats per 1/denom note
-    if (notes.every(n => onGrid(n.start, unit) && onGrid(n.start + n.duration, unit))) {
+    if (points.every(v => onGrid(v, unit))) return `1/${denom}`
+  }
+  // Triplet grids. A point counts as covered when it sits on the triplet
+  // grid OR the 1/32 binary grid — swung sections mix written triplets
+  // (.33/.67) with straight subdivisions (.25), and Hookpad's 2-decimal
+  // positions need a wider epsilon than the binary checks.
+  const tripletEps = 0.021
+  for (const denom of [12, 24]) {
+    const unit = 4 / denom // eighth-triplet: 1/3 beat, sixteenth-triplet: 1/6
+    if (points.every(v => onGrid(v, unit, tripletEps) || onGrid(v, 0.125))) {
       return `1/${denom}`
     }
   }
@@ -176,7 +190,9 @@ export function buildMeterTimeline(meterEvents, contentEndBeat) {
 }
 
 export function beatsPerDivisionFromTimeDivision(timeDivision, timeSignature = DEFAULT_TIME_SIGNATURE) {
-  const match = String(timeDivision || '1/4').match(/^1\/(1|2|4|8|16|32)$/)
+  // Denominators 6/12/24/48 are the triplet family: 4/12 = 1/3 quarter-beat
+  // (eighth-note triplet), 4/24 = 1/6 (sixteenth-note triplet), etc.
+  const match = String(timeDivision || '1/4').match(/^1\/(1|2|4|6|8|12|16|24|32|48)$/)
   const divisionDenominator = match ? Number(match[1]) : 4
   
   const normalizedTS = normalizeTimeSignature(timeSignature)
