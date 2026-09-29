@@ -490,6 +490,11 @@ function PianoRoll({
     const slDraw = Math.round(scrollLeft * dpr)
     // setTransform: dpr scale + viewport offset in one atomic reset
     ctx.setTransform(dpr, 0, 0, dpr, -slDraw, 0)
+    // Clear the exact viewport slice in scroll-space — clearing only
+    // [0, gridWidth] never reaches the bitmap tail when the viewport
+    // overshoots the grid's right edge (trailing scroll margin), so stale
+    // line pixels from earlier scroll positions accumulate there.
+    ctx.clearRect(slDraw / dpr, 0, cssW, gridHeight)
 
     const vpStart = (slDraw / dpr) / beatWidth
     const vpEnd = ((slDraw / dpr) + cssW) / beatWidth
