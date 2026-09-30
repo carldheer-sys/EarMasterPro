@@ -1003,14 +1003,7 @@
   "chordAnnotations": [
     {
       "start": 0.0,
-      "duration": 1.67,
-      "roman": "I/3",
-      "label": "Db/F",
-      "isDiatonic": true
-    },
-    {
-      "start": 1.67,
-      "duration": 0.33,
+      "duration": 2.0,
       "roman": "I/3",
       "label": "Db/F",
       "isDiatonic": true
@@ -1031,14 +1024,7 @@
     },
     {
       "start": 8.0,
-      "duration": 1.67,
-      "roman": "I/3",
-      "label": "Db/F",
-      "isDiatonic": true
-    },
-    {
-      "start": 9.67,
-      "duration": 0.33,
+      "duration": 2.0,
       "roman": "I/3",
       "label": "Db/F",
       "isDiatonic": true
@@ -1059,14 +1045,7 @@
     },
     {
       "start": 16.0,
-      "duration": 1.67,
-      "roman": "I/3",
-      "label": "Db/F",
-      "isDiatonic": true
-    },
-    {
-      "start": 17.67,
-      "duration": 0.33,
+      "duration": 2.0,
       "roman": "I/3",
       "label": "Db/F",
       "isDiatonic": true
@@ -1087,14 +1066,7 @@
     },
     {
       "start": 24.0,
-      "duration": 1.67,
-      "roman": "I/3",
-      "label": "Db/F",
-      "isDiatonic": true
-    },
-    {
-      "start": 25.67,
-      "duration": 0.33,
+      "duration": 2.0,
       "roman": "I/3",
       "label": "Db/F",
       "isDiatonic": true
@@ -1115,14 +1087,7 @@
     },
     {
       "start": 32.0,
-      "duration": 1.67,
-      "roman": "I/3",
-      "label": "Db/F",
-      "isDiatonic": true
-    },
-    {
-      "start": 33.67,
-      "duration": 0.33,
+      "duration": 2.0,
       "roman": "I/3",
       "label": "Db/F",
       "isDiatonic": true
@@ -1143,14 +1108,7 @@
     },
     {
       "start": 40.0,
-      "duration": 1.67,
-      "roman": "I/3",
-      "label": "Db/F",
-      "isDiatonic": true
-    },
-    {
-      "start": 41.67,
-      "duration": 0.33,
+      "duration": 2.0,
       "roman": "I/3",
       "label": "Db/F",
       "isDiatonic": true
@@ -1171,14 +1129,7 @@
     },
     {
       "start": 48.0,
-      "duration": 1.67,
-      "roman": "I/3",
-      "label": "Db/F",
-      "isDiatonic": true
-    },
-    {
-      "start": 49.67,
-      "duration": 0.33,
+      "duration": 2.0,
       "roman": "I/3",
       "label": "Db/F",
       "isDiatonic": true
@@ -1199,14 +1150,7 @@
     },
     {
       "start": 56.0,
-      "duration": 1.67,
-      "roman": "I/3",
-      "label": "Db/F",
-      "isDiatonic": true
-    },
-    {
-      "start": 57.67,
-      "duration": 0.33,
+      "duration": 2.0,
       "roman": "I/3",
       "label": "Db/F",
       "isDiatonic": true

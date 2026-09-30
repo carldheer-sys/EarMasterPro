@@ -933,14 +933,7 @@
     },
     {
       "start": 56.0,
-      "duration": 4.0,
-      "roman": "V",
-      "label": "F#",
-      "isDiatonic": true
-    },
-    {
-      "start": 60.0,
-      "duration": 3.5,
+      "duration": 7.5,
       "roman": "V",
       "label": "F#",
       "isDiatonic": true

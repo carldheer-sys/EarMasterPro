@@ -765,14 +765,7 @@
     },
     {
       "start": 8.0,
-      "duration": 1.67,
-      "roman": "IV",
-      "label": "Gb",
-      "isDiatonic": true
-    },
-    {
-      "start": 9.67,
-      "duration": 1.0,
+      "duration": 2.67,
       "roman": "IV",
       "label": "Gb",
       "isDiatonic": true
@@ -786,14 +779,7 @@
     },
     {
       "start": 12.0,
-      "duration": 1.67,
-      "roman": "IV",
-      "label": "Gb",
-      "isDiatonic": true
-    },
-    {
-      "start": 13.67,
-      "duration": 1.0,
+      "duration": 2.67,
       "roman": "IV",
       "label": "Gb",
       "isDiatonic": true
@@ -828,14 +814,7 @@
     },
     {
       "start": 24.0,
-      "duration": 1.67,
-      "roman": "IV",
-      "label": "Gb",
-      "isDiatonic": true
-    },
-    {
-      "start": 25.67,
-      "duration": 1.0,
+      "duration": 2.67,
       "roman": "IV",
       "label": "Gb",
       "isDiatonic": true
@@ -849,14 +828,7 @@
     },
     {
       "start": 28.0,
-      "duration": 1.67,
-      "roman": "IV",
-      "label": "Gb",
-      "isDiatonic": true
-    },
-    {
-      "start": 29.67,
-      "duration": 1.0,
+      "duration": 2.67,
       "roman": "IV",
       "label": "Gb",
       "isDiatonic": true

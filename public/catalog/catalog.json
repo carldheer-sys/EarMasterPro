@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-29T15:23:21.163Z",
+  "generatedAt": "2026-09-30T06:10:36.587Z",
   "artists": [
     {
       "name": "Alex Warren",
@@ -342,6 +342,63 @@
       "name": "Ghost",
       "songs": [
         {
+          "title": "Griftwood",
+          "folder": "Ghost - Griftwood",
+          "transcription": "/catalog/Ghost%20-%20Griftwood/griftwood-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Ghost - Griftwood/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "C",
+              "keyMode": "Minor",
+              "tempo": 120,
+              "internalBpm": 120,
+              "timeSignature": "4/4",
+              "bars": 8,
+              "melodyNotes": 40,
+              "chordNotes": 171,
+              "assets": {
+                "session": "/catalog/Ghost%20-%20Griftwood/verse/session.eartrainer.json",
+                "melody": "/catalog/Ghost%20-%20Griftwood/verse/melody.mid",
+                "chords": "/catalog/Ghost%20-%20Griftwood/verse/chords.mid",
+                "audio": "/catalog/Ghost%20-%20Griftwood/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Ghost - Griftwood/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "C",
+              "keyMode": "Minor",
+              "tempo": 120,
+              "internalBpm": 120,
+              "timeSignature": "4/4",
+              "bars": 9,
+              "melodyNotes": 37,
+              "chordNotes": 54,
+              "assets": {
+                "session": "/catalog/Ghost%20-%20Griftwood/chorus/session.eartrainer.json",
+                "melody": "/catalog/Ghost%20-%20Griftwood/chorus/melody.mid",
+                "chords": "/catalog/Ghost%20-%20Griftwood/chorus/chords.mid",
+                "audio": "/catalog/Ghost%20-%20Griftwood/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
           "title": "Mary on a Cross",
           "folder": "Ghost - Mary on a Cross",
           "transcription": "/catalog/Ghost%20-%20Mary%20on%20a%20Cross/mary-on-a-cross-verse-chorus-google-docs.html",
@@ -445,6 +502,125 @@
                 "melody": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/melody.mid",
                 "chords": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/chords.mid",
                 "audio": "/catalog/Ghost%20-%20The%20Future%20is%20a%20Foreign%20Land/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Hozier",
+      "songs": [
+        {
+          "title": "Take Me To Church",
+          "folder": "Hozier - Take Me To Church",
+          "transcription": "/catalog/Hozier%20-%20Take%20Me%20To%20Church/take-me-to-church-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Hozier - Take Me To Church/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "E",
+              "keyMode": "Minor",
+              "tempo": 63,
+              "internalBpm": 63,
+              "timeSignature": "3/4",
+              "bars": 9,
+              "melodyNotes": 73,
+              "chordNotes": 55,
+              "assets": {
+                "session": "/catalog/Hozier%20-%20Take%20Me%20To%20Church/verse/session.eartrainer.json",
+                "melody": "/catalog/Hozier%20-%20Take%20Me%20To%20Church/verse/melody.mid",
+                "chords": "/catalog/Hozier%20-%20Take%20Me%20To%20Church/verse/chords.mid",
+                "audio": "/catalog/Hozier%20-%20Take%20Me%20To%20Church/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Hozier - Take Me To Church/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "E",
+              "keyMode": "Minor",
+              "tempo": 65,
+              "internalBpm": 65,
+              "timeSignature": "4/4",
+              "bars": 9,
+              "melodyNotes": 90,
+              "chordNotes": 66,
+              "assets": {
+                "session": "/catalog/Hozier%20-%20Take%20Me%20To%20Church/chorus/session.eartrainer.json",
+                "melody": "/catalog/Hozier%20-%20Take%20Me%20To%20Church/chorus/melody.mid",
+                "chords": "/catalog/Hozier%20-%20Take%20Me%20To%20Church/chorus/chords.mid",
+                "audio": "/catalog/Hozier%20-%20Take%20Me%20To%20Church/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "Too Sweet",
+          "folder": "Hozier - Too Sweet",
+          "transcription": "/catalog/Hozier%20-%20Too%20Sweet/too-sweet-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Hozier - Too Sweet/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "G",
+              "keyMode": "Minor",
+              "tempo": 117,
+              "internalBpm": 117,
+              "timeSignature": "4/4",
+              "bars": 16,
+              "melodyNotes": 87,
+              "chordNotes": 37,
+              "assets": {
+                "session": "/catalog/Hozier%20-%20Too%20Sweet/verse/session.eartrainer.json",
+                "melody": "/catalog/Hozier%20-%20Too%20Sweet/verse/melody.mid",
+                "chords": "/catalog/Hozier%20-%20Too%20Sweet/verse/chords.mid",
+                "audio": "/catalog/Hozier%20-%20Too%20Sweet/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Hozier - Too Sweet/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "G",
+              "keyMode": "Minor",
+              "tempo": 117,
+              "internalBpm": 117,
+              "timeSignature": "4/4",
+              "bars": 16,
+              "melodyNotes": 66,
+              "chordNotes": 43,
+              "assets": {
+                "session": "/catalog/Hozier%20-%20Too%20Sweet/chorus/session.eartrainer.json",
+                "melody": "/catalog/Hozier%20-%20Too%20Sweet/chorus/melody.mid",
+                "chords": "/catalog/Hozier%20-%20Too%20Sweet/chorus/chords.mid",
+                "audio": "/catalog/Hozier%20-%20Too%20Sweet/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,

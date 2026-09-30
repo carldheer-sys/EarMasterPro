@@ -583,28 +583,14 @@
   "chordAnnotations": [
     {
       "start": 0.0,
-      "duration": 2.0,
-      "roman": "I",
-      "label": "E",
-      "isDiatonic": true
-    },
-    {
-      "start": 2.0,
-      "duration": 2.0,
+      "duration": 4.0,
       "roman": "I",
       "label": "E",
       "isDiatonic": true
     },
     {
       "start": 4.0,
-      "duration": 2.0,
-      "roman": "ii",
-      "label": "F#m",
-      "isDiatonic": true
-    },
-    {
-      "start": 6.0,
-      "duration": 2.0,
+      "duration": 4.0,
       "roman": "ii",
       "label": "F#m",
       "isDiatonic": true
@@ -625,28 +611,14 @@
     },
     {
       "start": 12.0,
-      "duration": 2.0,
-      "roman": "I",
-      "label": "E",
-      "isDiatonic": true
-    },
-    {
-      "start": 14.0,
-      "duration": 2.0,
+      "duration": 4.0,
       "roman": "I",
       "label": "E",
       "isDiatonic": true
     },
     {
       "start": 16.0,
-      "duration": 2.0,
-      "roman": "ii",
-      "label": "F#m",
-      "isDiatonic": true
-    },
-    {
-      "start": 18.0,
-      "duration": 2.0,
+      "duration": 4.0,
       "roman": "ii",
       "label": "F#m",
       "isDiatonic": true
@@ -660,14 +632,7 @@
     },
     {
       "start": 22.0,
-      "duration": 2.0,
-      "roman": "IV",
-      "label": "A",
-      "isDiatonic": true
-    },
-    {
-      "start": 24.0,
-      "duration": 2.0,
+      "duration": 4.0,
       "roman": "IV",
       "label": "A",
       "isDiatonic": true

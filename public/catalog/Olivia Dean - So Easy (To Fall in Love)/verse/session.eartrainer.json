@@ -487,7 +487,7 @@
       "start": 14.0,
       "duration": 2.0,
       "roman": "VI7/b2",
-      "label": "C/E7",
+      "label": "C7/E",
       "isDiatonic": false
     },
     {
@@ -508,7 +508,7 @@
       "start": 30.0,
       "duration": 2.0,
       "roman": "VI7/b2",
-      "label": "C/E7",
+      "label": "C7/E",
       "isDiatonic": false
     }
   ],

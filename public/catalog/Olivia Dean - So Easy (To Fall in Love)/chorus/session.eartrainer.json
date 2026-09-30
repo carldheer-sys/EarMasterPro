@@ -900,7 +900,7 @@
       "start": 15.5,
       "duration": 4.5,
       "roman": "I7/3",
-      "label": "C/E7",
+      "label": "C7/E",
       "isDiatonic": false
     },
     {
@@ -926,16 +926,9 @@
     },
     {
       "start": 31.5,
-      "duration": 3.0,
+      "duration": 4.5,
       "roman": "I7/3",
-      "label": "C/E7",
-      "isDiatonic": false
-    },
-    {
-      "start": 34.5,
-      "duration": 1.5,
-      "roman": "I7/3",
-      "label": "C/E7",
+      "label": "C7/E",
       "isDiatonic": false
     },
     {

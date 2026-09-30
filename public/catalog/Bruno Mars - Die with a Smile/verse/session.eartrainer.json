@@ -989,14 +989,7 @@
     },
     {
       "start": 21.0,
-      "duration": 6.0,
-      "roman": "IVmaj7",
-      "label": "Dmaj7",
-      "isDiatonic": true
-    },
-    {
-      "start": 27.0,
-      "duration": 6.0,
+      "duration": 12.0,
       "roman": "IVmaj7",
       "label": "Dmaj7",
       "isDiatonic": true

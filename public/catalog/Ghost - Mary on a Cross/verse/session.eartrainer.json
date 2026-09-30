@@ -1626,44 +1626,30 @@
     },
     {
       "start": 47.5,
-      "duration": 1.5,
-      "roman": "ii",
-      "label": "C#m",
-      "isDiatonic": true
-    },
-    {
-      "start": 49.0,
-      "duration": 6.5,
-      "roman": "IV",
-      "label": "E",
+      "duration": 8.0,
+      "roman": "vi",
+      "label": "G#m",
       "isDiatonic": true
     },
     {
       "start": 55.5,
       "duration": 1.5,
-      "roman": "IV",
-      "label": "E",
+      "roman": "I",
+      "label": "B",
       "isDiatonic": true
     },
     {
       "start": 57.0,
-      "duration": 2.5,
-      "roman": "vi",
-      "label": "G#m",
-      "isDiatonic": true
-    },
-    {
-      "start": 59.5,
-      "duration": 1.5,
-      "roman": "vi",
-      "label": "G#m",
-      "isDiatonic": true
-    },
-    {
-      "start": 61.0,
-      "duration": 2.5,
+      "duration": 5.0,
       "roman": "V",
       "label": "F#",
+      "isDiatonic": true
+    },
+    {
+      "start": 62.0,
+      "duration": 1.5,
+      "roman": "N.C.",
+      "label": "N.C.",
       "isDiatonic": true
     },
     {
@@ -1696,30 +1682,30 @@
     },
     {
       "start": 79.5,
+      "duration": 1.5,
+      "roman": "ii",
+      "label": "C#m",
+      "isDiatonic": true
+    },
+    {
+      "start": 81.0,
       "duration": 8.0,
+      "roman": "IV",
+      "label": "E",
+      "isDiatonic": true
+    },
+    {
+      "start": 89.0,
+      "duration": 4.0,
       "roman": "vi",
       "label": "G#m",
       "isDiatonic": true
     },
     {
-      "start": 87.5,
-      "duration": 1.5,
-      "roman": "I",
-      "label": "B",
-      "isDiatonic": true
-    },
-    {
-      "start": 89.0,
-      "duration": 5.0,
+      "start": 93.0,
+      "duration": 2.5,
       "roman": "V",
       "label": "F#",
-      "isDiatonic": true
-    },
-    {
-      "start": 94.0,
-      "duration": 1.5,
-      "roman": "N.C.",
-      "label": "N.C.",
       "isDiatonic": true
     },
     {
@@ -1752,41 +1738,83 @@
     },
     {
       "start": 111.5,
+      "duration": 8.0,
+      "roman": "vi",
+      "label": "G#m",
+      "isDiatonic": true
+    },
+    {
+      "start": 119.5,
+      "duration": 1.5,
+      "roman": "I",
+      "label": "B",
+      "isDiatonic": true
+    },
+    {
+      "start": 121.0,
+      "duration": 5.0,
+      "roman": "V",
+      "label": "F#",
+      "isDiatonic": true
+    },
+    {
+      "start": 126.0,
+      "duration": 1.5,
+      "roman": "N.C.",
+      "label": "N.C.",
+      "isDiatonic": true
+    },
+    {
+      "start": 127.5,
+      "duration": 8.0,
+      "roman": "vi",
+      "label": "G#m",
+      "isDiatonic": true
+    },
+    {
+      "start": 135.5,
+      "duration": 1.5,
+      "roman": "I",
+      "label": "B",
+      "isDiatonic": true
+    },
+    {
+      "start": 137.0,
+      "duration": 5.0,
+      "roman": "V",
+      "label": "F#",
+      "isDiatonic": true
+    },
+    {
+      "start": 142.0,
+      "duration": 1.5,
+      "roman": "N.C.",
+      "label": "N.C.",
+      "isDiatonic": true
+    },
+    {
+      "start": 143.5,
       "duration": 1.5,
       "roman": "ii",
       "label": "C#m",
       "isDiatonic": true
     },
     {
-      "start": 113.0,
-      "duration": 6.5,
+      "start": 145.0,
+      "duration": 8.0,
       "roman": "IV",
       "label": "E",
       "isDiatonic": true
     },
     {
-      "start": 119.5,
-      "duration": 1.5,
-      "roman": "IV",
-      "label": "E",
-      "isDiatonic": true
-    },
-    {
-      "start": 121.0,
-      "duration": 2.5,
+      "start": 153.0,
+      "duration": 4.0,
       "roman": "vi",
       "label": "G#m",
       "isDiatonic": true
     },
     {
-      "start": 123.5,
-      "duration": 1.5,
-      "roman": "vi",
-      "label": "G#m",
-      "isDiatonic": true
-    },
-    {
-      "start": 125.0,
+      "start": 157.0,
       "duration": 3.0,
       "roman": "V",
       "label": "F#",
