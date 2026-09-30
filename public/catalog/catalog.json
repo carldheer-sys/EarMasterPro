@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-30T06:10:36.587Z",
+  "generatedAt": "2026-09-30T10:23:22.508Z",
   "artists": [
     {
       "name": "Alex Warren",
@@ -621,6 +621,246 @@
                 "melody": "/catalog/Hozier%20-%20Too%20Sweet/chorus/melody.mid",
                 "chords": "/catalog/Hozier%20-%20Too%20Sweet/chorus/chords.mid",
                 "audio": "/catalog/Hozier%20-%20Too%20Sweet/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Linkin Park",
+      "songs": [
+        {
+          "title": "Battle Symphony",
+          "folder": "Linkin Park - Battle Symphony",
+          "transcription": "/catalog/Linkin%20Park%20-%20Battle%20Symphony/battle-symphony-verse-pre-chorus-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Linkin Park - Battle Symphony/verse-and-pre-chorus",
+              "name": "verse-and-pre-chorus",
+              "label": "Verse And Pre Chorus",
+              "key": "Bb",
+              "keyMode": "Major",
+              "tempo": 75,
+              "internalBpm": 75,
+              "timeSignature": "4/4",
+              "bars": 11,
+              "melodyNotes": 55,
+              "chordNotes": 84,
+              "assets": {
+                "session": "/catalog/Linkin%20Park%20-%20Battle%20Symphony/verse-and-pre-chorus/session.eartrainer.json",
+                "melody": "/catalog/Linkin%20Park%20-%20Battle%20Symphony/verse-and-pre-chorus/melody.mid",
+                "chords": "/catalog/Linkin%20Park%20-%20Battle%20Symphony/verse-and-pre-chorus/chords.mid",
+                "audio": "/catalog/Linkin%20Park%20-%20Battle%20Symphony/verse-and-pre-chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Linkin Park - Battle Symphony/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "Bb",
+              "keyMode": "Major",
+              "tempo": 75,
+              "internalBpm": 75,
+              "timeSignature": "4/4",
+              "bars": 13,
+              "melodyNotes": 68,
+              "chordNotes": 69,
+              "assets": {
+                "session": "/catalog/Linkin%20Park%20-%20Battle%20Symphony/chorus/session.eartrainer.json",
+                "melody": "/catalog/Linkin%20Park%20-%20Battle%20Symphony/chorus/melody.mid",
+                "chords": "/catalog/Linkin%20Park%20-%20Battle%20Symphony/chorus/chords.mid",
+                "audio": "/catalog/Linkin%20Park%20-%20Battle%20Symphony/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "Heavy is the Crown",
+          "folder": "Linkin Park - Heavy is the Crown",
+          "transcription": "/catalog/Linkin%20Park%20-%20Heavy%20is%20the%20Crown/heavy-is-the-crown-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Linkin Park - Heavy is the Crown/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "B",
+              "keyMode": "Dorian",
+              "tempo": 128,
+              "internalBpm": 128,
+              "timeSignature": "4/4",
+              "bars": 10,
+              "melodyNotes": 44,
+              "chordNotes": 24,
+              "assets": {
+                "session": "/catalog/Linkin%20Park%20-%20Heavy%20is%20the%20Crown/chorus/session.eartrainer.json",
+                "melody": "/catalog/Linkin%20Park%20-%20Heavy%20is%20the%20Crown/chorus/melody.mid",
+                "chords": "/catalog/Linkin%20Park%20-%20Heavy%20is%20the%20Crown/chorus/chords.mid",
+                "audio": "/catalog/Linkin%20Park%20-%20Heavy%20is%20the%20Crown/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "In The End",
+          "folder": "Linkin Park - In The End",
+          "transcription": "/catalog/Linkin%20Park%20-%20In%20The%20End/in-the-end-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Linkin Park - In The End/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "D#",
+              "keyMode": "Minor",
+              "tempo": 105,
+              "internalBpm": 105,
+              "timeSignature": "4/4",
+              "bars": 9,
+              "melodyNotes": 46,
+              "chordNotes": 30,
+              "assets": {
+                "session": "/catalog/Linkin%20Park%20-%20In%20The%20End/chorus/session.eartrainer.json",
+                "melody": "/catalog/Linkin%20Park%20-%20In%20The%20End/chorus/melody.mid",
+                "chords": "/catalog/Linkin%20Park%20-%20In%20The%20End/chorus/chords.mid",
+                "audio": "/catalog/Linkin%20Park%20-%20In%20The%20End/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "Lost",
+          "folder": "Linkin Park - Lost",
+          "transcription": "/catalog/Linkin%20Park%20-%20Lost/lost-verse-pre-chorus-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Linkin Park - Lost/verse-and-pre-chorus",
+              "name": "verse-and-pre-chorus",
+              "label": "Verse And Pre Chorus",
+              "key": "A",
+              "keyMode": "Minor",
+              "tempo": 105,
+              "internalBpm": 105,
+              "timeSignature": "4/4",
+              "bars": 17,
+              "melodyNotes": 57,
+              "chordNotes": 45,
+              "assets": {
+                "session": "/catalog/Linkin%20Park%20-%20Lost/verse-and-pre-chorus/session.eartrainer.json",
+                "melody": "/catalog/Linkin%20Park%20-%20Lost/verse-and-pre-chorus/melody.mid",
+                "chords": "/catalog/Linkin%20Park%20-%20Lost/verse-and-pre-chorus/chords.mid",
+                "audio": "/catalog/Linkin%20Park%20-%20Lost/verse-and-pre-chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Linkin Park - Lost/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "A",
+              "keyMode": "Minor",
+              "tempo": 105,
+              "internalBpm": 105,
+              "timeSignature": "4/4",
+              "bars": 11,
+              "melodyNotes": 32,
+              "chordNotes": 30,
+              "assets": {
+                "session": "/catalog/Linkin%20Park%20-%20Lost/chorus/session.eartrainer.json",
+                "melody": "/catalog/Linkin%20Park%20-%20Lost/chorus/melody.mid",
+                "chords": "/catalog/Linkin%20Park%20-%20Lost/chorus/chords.mid",
+                "audio": "/catalog/Linkin%20Park%20-%20Lost/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        },
+        {
+          "title": "Somewhere I Belong",
+          "folder": "Linkin Park - Somewhere I Belong",
+          "transcription": "/catalog/Linkin%20Park%20-%20Somewhere%20I%20Belong/somewhere-i-belong-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Linkin Park - Somewhere I Belong/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "Bb",
+              "keyMode": "Minor",
+              "tempo": 81,
+              "internalBpm": 81,
+              "timeSignature": "4/4",
+              "bars": 9,
+              "melodyNotes": 19,
+              "chordNotes": 52,
+              "assets": {
+                "session": "/catalog/Linkin%20Park%20-%20Somewhere%20I%20Belong/verse/session.eartrainer.json",
+                "melody": "/catalog/Linkin%20Park%20-%20Somewhere%20I%20Belong/verse/melody.mid",
+                "chords": "/catalog/Linkin%20Park%20-%20Somewhere%20I%20Belong/verse/chords.mid",
+                "audio": "/catalog/Linkin%20Park%20-%20Somewhere%20I%20Belong/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Linkin Park - Somewhere I Belong/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "Bb",
+              "keyMode": "Minor",
+              "tempo": 81,
+              "internalBpm": 81,
+              "timeSignature": "4/4",
+              "bars": 9,
+              "melodyNotes": 57,
+              "chordNotes": 58,
+              "assets": {
+                "session": "/catalog/Linkin%20Park%20-%20Somewhere%20I%20Belong/chorus/session.eartrainer.json",
+                "melody": "/catalog/Linkin%20Park%20-%20Somewhere%20I%20Belong/chorus/melody.mid",
+                "chords": "/catalog/Linkin%20Park%20-%20Somewhere%20I%20Belong/chorus/chords.mid",
+                "audio": "/catalog/Linkin%20Park%20-%20Somewhere%20I%20Belong/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
