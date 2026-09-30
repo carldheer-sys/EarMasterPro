@@ -24,6 +24,7 @@
     body[data-notation="names"] .d { display:none; }
     body[data-notation="names"] .n { display:inline; }
     .nd { color:#f87171; font-weight:600; }
+    .kc { color:#2dd4bf; font-weight:600; }
     .notes { color:#cbd5e1; }
     body[data-theme="light"] { color:#0f172a; }
     body[data-theme="light"] .section { border-color:rgba(100,116,139,.25); background:rgba(241,245,249,.8); }
@@ -32,6 +33,7 @@
     body[data-theme="light"] .copy-btn { border-color:rgba(100,116,139,.4); background:#e2e8f0; color:#334155; }
     body[data-theme="light"] .notes { color:#334155; }
     body[data-theme="light"] .nd { color:#dc2626; }
+    body[data-theme="light"] .kc { color:#008080; }
 
   </style>
 </head>
@@ -93,8 +95,9 @@
       clone.querySelectorAll('.copy-btn').forEach(b => b.remove())
       const hiddenSel = document.body.dataset.notation === 'names' ? '.d' : '.n'
       clone.querySelectorAll(hiddenSel).forEach(el => el.remove())
-      // class-based red -> inline color so it survives the paste
+      // class-based red/teal -> inline color so it survives the paste
       clone.querySelectorAll('.nd').forEach(el => { el.style.color = '#c00000' })
+      clone.querySelectorAll('.kc').forEach(el => { el.style.color = '#008080' })
       // strip app-theme backgrounds so the paste looks right on white Docs
       clone.querySelectorAll('th').forEach(el => {
         el.style.background = '#d9d9d9'
