@@ -9,7 +9,7 @@ const base = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../publ
 const load = (rel) => JSON.parse(readFileSync(path.join(base, rel), 'utf8'))
 
 describe('keyEvents — Die with a Smile chorus (trimmed at the key change)', () => {
-  const s = load('Bruno Mars - Die with a Smile/chorus/session.eartrainer.json')
+  const s = load('Lady Gaga - Die With A Smile (with Bruno Mars)/chorus/session.eartrainer.json')
 
   it('is single-key F# minor — the A-major material is excluded', () => {
     expect(s.keyEvents).toEqual([{ beat: 0, key: 'F#', keyMode: 'Minor' }])
@@ -96,7 +96,7 @@ describe('pickup windows — Ghost chorus and Die with a Smile verse', () => {
   })
 
   it('Die with a Smile verse includes the 5-6-1-7 pickup run', () => {
-    const s = load('Bruno Mars - Die with a Smile/verse/session.eartrainer.json')
+    const s = load('Lady Gaga - Die With A Smile (with Bruno Mars)/verse/session.eartrainer.json')
     expect(s.notes[0]).toMatchObject({ note: 'E4', start: 1.0, duration: 0.25 })
     expect(s.notes.slice(0, 4).map(n => n.note)).toEqual(['E4', 'F#4', 'A4', 'G#4'])
     expect(s.settings.bars).toBe(17)
@@ -105,7 +105,7 @@ describe('pickup windows — Ghost chorus and Die with a Smile verse', () => {
 
 describe('detectTimeDivision', () => {
   it('detects per-part resolution', () => {
-    const doj = load('Breaking Benjamin - Diary of Jane/chorus/session.eartrainer.json')
+    const doj = load('Breaking Benjamin - The Diary of Jane/chorus/session.eartrainer.json')
     const ord = load('Alex Warren - Ordinary/chorus/session.eartrainer.json')
     const line = load('Twenty One Pilots - The Line/chorus/session.eartrainer.json')
     expect(detectTimeDivision(doj.notes)).toBe('1/16')

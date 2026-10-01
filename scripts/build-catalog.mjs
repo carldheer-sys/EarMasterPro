@@ -2,13 +2,17 @@
 /**
  * build-catalog.mjs — Bake the Music_Catalog transcription library into the app.
  *
- * Scans <Music_Catalog>/<Artist - Title>/<section>/ folders, validates assets
+ * Scans <Music_Catalog>/<Artist>/<Title>/<section>/ folders, validates assets
  * (melody.mid, chords.mid, audio.mp3|audio.wav, session.eartrainer.json),
- * copies them to public/catalog/, and writes public/catalog/catalog.json — a
- * browse-ready manifest organized artist -> song -> section. Song-level
- * *transcription*.html files are copied as `song.transcription` assets.
+ * copies them to public/catalog/<Artist - Title>/<section>/, and writes
+ * public/catalog/catalog.json — a browse-ready manifest organized
+ * artist -> song -> section. Song-level *transcription*.html files are
+ * copied as `song.transcription` assets.
  *
- * Folders ending in " - manual" (and the scripts&skills dir) are excluded.
+ * Legacy flat "<Artist - Title>" song dirs are still accepted: a top-level
+ * dir that itself holds song-info.json (or direct section dirs containing
+ * session files) is treated as a song dir. Folders ending in " - manual"
+ * (and the scripts&skills dir) are excluded.
  *
  * Usage: node scripts/build-catalog.mjs [catalogRoot]
  *   catalogRoot defaults to ../Music_Catalog (sibling of this repo) or the
@@ -68,9 +72,20 @@ const catalog = { generatedAt: new Date().toISOString(), artists: [] }
 
 console.log(`[catalog] Scanning ${catalogRoot}`)
 
-let songDirs
+async function isSongDir(dir) {
+  /** A song dir holds song-info.json, or (legacy exports without it) has
+   * section dirs that directly contain session files. */
+  if (await fileExists(path.join(dir, 'song-info.json'))) return true
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    if (e.isDirectory() && !e.name.endsWith('- manual') && !e.name.startsWith('.') &&
+        await fileExists(path.join(dir, e.name, 'session.eartrainer.json'))) return true
+  }
+  return false
+}
+
+let topDirs
 try {
-  songDirs = (await readdir(catalogRoot, { withFileTypes: true }))
+  topDirs = (await readdir(catalogRoot, { withFileTypes: true }))
     .filter(e => e.isDirectory() && !SKIP_DIRS.has(e.name) && !e.name.startsWith('.'))
     .map(e => e.name)
     .sort()
@@ -86,12 +101,30 @@ try {
   process.exit(1)
 }
 
+// Collect song entries from the nested <Artist>/<Title>/ layout; a
+// top-level dir that is itself a song dir (legacy flat "Artist - Title"
+// layout) is used as-is. `folder` is the bundled catalog dir name —
+// "Artist - Title" — keeping public/catalog paths stable either way.
+const songs = []
+for (const l1 of topDirs) {
+  const d1 = path.join(catalogRoot, l1)
+  if (await isSongDir(d1)) {
+    const m = l1.match(/^(.+?)\s+-\s+(.+)$/)
+    songs.push({ folder: l1, dir: d1, artist: m?.[1]?.trim(), title: m?.[2]?.trim() })
+    continue
+  }
+  for (const e of await readdir(d1, { withFileTypes: true })) {
+    if (!e.isDirectory() || e.name.endsWith('- manual') || e.name.startsWith('.')) continue
+    songs.push({ folder: `${l1} - ${e.name}`, dir: path.join(d1, e.name), artist: l1, title: e.name })
+  }
+}
+songs.sort((a, b) => a.folder.localeCompare(b.folder))
+
 // Clear stale output — sections deleted/renamed upstream must not linger
 await rm(outDir, { recursive: true, force: true })
 await mkdir(outDir, { recursive: true })
 
-for (const songFolder of songDirs) {
-  const songDir = path.join(catalogRoot, songFolder)
+for (const { folder: songFolder, dir: songDir, artist: dirArtist, title: dirTitle } of songs) {
   const infoPath = path.join(songDir, 'song-info.json')
   let songInfo = null
   if (await fileExists(infoPath)) {
@@ -99,17 +132,11 @@ for (const songFolder of songDirs) {
     catch (err) { warnings.push(`${songFolder}: invalid song-info.json (${err.message})`) }
   }
 
-  // Artist/title: the "Artist - Title" folder name is the catalog's
-  // organizational source of truth; song-info.json is the fallback.
-  let artist, title
-  const m = songFolder.match(/^(.+?)\s+-\s+(.+)$/)
-  if (m) {
-    artist = m[1].trim()
-    title = m[2].trim()
-  } else {
-    artist = songInfo?.artist || 'Unknown Artist'
-    title = songInfo?.song || songFolder
-  }
+  // Artist/title: the directory structure is the catalog's organizational
+  // source of truth (<Artist>/<Title>/ or flat "<Artist - Title>");
+  // song-info.json is the fallback for non-conforming dir names.
+  const artist = dirArtist || songInfo?.artist || 'Unknown Artist'
+  const title = dirTitle || songInfo?.song || songFolder
 
   const sectionDirs = (await readdir(songDir, { withFileTypes: true }))
     .filter(e => e.isDirectory() && !e.name.endsWith('- manual') && !e.name.startsWith('.'))

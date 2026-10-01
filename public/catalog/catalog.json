@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-30T19:26:33.903Z",
+  "generatedAt": "2026-10-01T06:20:13.067Z",
   "artists": [
     {
       "name": "Alex Warren",
@@ -243,12 +243,12 @@
       "name": "Breaking Benjamin",
       "songs": [
         {
-          "title": "Diary of Jane",
-          "folder": "Breaking Benjamin - Diary of Jane",
-          "transcription": "/catalog/Breaking%20Benjamin%20-%20Diary%20of%20Jane/the-diary-of-jane-chorus-google-docs.html",
+          "title": "The Diary of Jane",
+          "folder": "Breaking Benjamin - The Diary of Jane",
+          "transcription": "/catalog/Breaking%20Benjamin%20-%20The%20Diary%20of%20Jane/the-diary-of-jane-chorus-google-docs.html",
           "sections": [
             {
-              "id": "Breaking Benjamin - Diary of Jane/chorus",
+              "id": "Breaking Benjamin - The Diary of Jane/chorus",
               "name": "chorus",
               "label": "Chorus",
               "key": "Bb",
@@ -260,72 +260,10 @@
               "melodyNotes": 63,
               "chordNotes": 30,
               "assets": {
-                "session": "/catalog/Breaking%20Benjamin%20-%20Diary%20of%20Jane/chorus/session.eartrainer.json",
-                "melody": "/catalog/Breaking%20Benjamin%20-%20Diary%20of%20Jane/chorus/melody.mid",
-                "chords": "/catalog/Breaking%20Benjamin%20-%20Diary%20of%20Jane/chorus/chords.mid",
-                "audio": "/catalog/Breaking%20Benjamin%20-%20Diary%20of%20Jane/chorus/audio.mp3"
-              },
-              "capabilities": {
-                "melody": true,
-                "chords": true,
-                "audio": true,
-                "annotations": true
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "Bruno Mars",
-      "songs": [
-        {
-          "title": "Die with a Smile",
-          "folder": "Bruno Mars - Die with a Smile",
-          "transcription": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/die-with-a-smile-verse-chorus-google-docs.html",
-          "sections": [
-            {
-              "id": "Bruno Mars - Die with a Smile/verse",
-              "name": "verse",
-              "label": "Verse",
-              "key": "A",
-              "keyMode": "Major",
-              "tempo": 53,
-              "internalBpm": 79.5,
-              "timeSignature": "6/8",
-              "bars": 17,
-              "melodyNotes": 98,
-              "chordNotes": 34,
-              "assets": {
-                "session": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/verse/session.eartrainer.json",
-                "melody": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/verse/melody.mid",
-                "chords": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/verse/chords.mid",
-                "audio": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/verse/audio.mp3"
-              },
-              "capabilities": {
-                "melody": true,
-                "chords": true,
-                "audio": true,
-                "annotations": true
-              }
-            },
-            {
-              "id": "Bruno Mars - Die with a Smile/chorus",
-              "name": "chorus",
-              "label": "Chorus",
-              "key": "F#",
-              "keyMode": "Minor",
-              "tempo": 53,
-              "internalBpm": 79,
-              "timeSignature": "6/8",
-              "bars": 15,
-              "melodyNotes": 62,
-              "chordNotes": 67,
-              "assets": {
-                "session": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/chorus/session.eartrainer.json",
-                "melody": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/chorus/melody.mid",
-                "chords": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/chorus/chords.mid",
-                "audio": "/catalog/Bruno%20Mars%20-%20Die%20with%20a%20Smile/chorus/audio.mp3"
+                "session": "/catalog/Breaking%20Benjamin%20-%20The%20Diary%20of%20Jane/chorus/session.eartrainer.json",
+                "melody": "/catalog/Breaking%20Benjamin%20-%20The%20Diary%20of%20Jane/chorus/melody.mid",
+                "chords": "/catalog/Breaking%20Benjamin%20-%20The%20Diary%20of%20Jane/chorus/chords.mid",
+                "audio": "/catalog/Breaking%20Benjamin%20-%20The%20Diary%20of%20Jane/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
@@ -621,6 +559,68 @@
                 "melody": "/catalog/Hozier%20-%20Too%20Sweet/chorus/melody.mid",
                 "chords": "/catalog/Hozier%20-%20Too%20Sweet/chorus/chords.mid",
                 "audio": "/catalog/Hozier%20-%20Too%20Sweet/chorus/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Lady Gaga",
+      "songs": [
+        {
+          "title": "Die With A Smile (with Bruno Mars)",
+          "folder": "Lady Gaga - Die With A Smile (with Bruno Mars)",
+          "transcription": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/die-with-a-smile-verse-chorus-google-docs.html",
+          "sections": [
+            {
+              "id": "Lady Gaga - Die With A Smile (with Bruno Mars)/verse",
+              "name": "verse",
+              "label": "Verse",
+              "key": "A",
+              "keyMode": "Major",
+              "tempo": 53,
+              "internalBpm": 79.5,
+              "timeSignature": "6/8",
+              "bars": 17,
+              "melodyNotes": 98,
+              "chordNotes": 34,
+              "assets": {
+                "session": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/verse/session.eartrainer.json",
+                "melody": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/verse/melody.mid",
+                "chords": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/verse/chords.mid",
+                "audio": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/verse/audio.mp3"
+              },
+              "capabilities": {
+                "melody": true,
+                "chords": true,
+                "audio": true,
+                "annotations": true
+              }
+            },
+            {
+              "id": "Lady Gaga - Die With A Smile (with Bruno Mars)/chorus",
+              "name": "chorus",
+              "label": "Chorus",
+              "key": "F#",
+              "keyMode": "Minor",
+              "tempo": 53,
+              "internalBpm": 79,
+              "timeSignature": "6/8",
+              "bars": 15,
+              "melodyNotes": 62,
+              "chordNotes": 67,
+              "assets": {
+                "session": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/chorus/session.eartrainer.json",
+                "melody": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/chorus/melody.mid",
+                "chords": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/chorus/chords.mid",
+                "audio": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,

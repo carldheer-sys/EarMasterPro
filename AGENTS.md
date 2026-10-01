@@ -17,9 +17,12 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   version; a stale cache name strands clients on old builds (blank pages).
 - **`catalog.json` + `session.eartrainer.json` are network-first** in sw.js —
   they carry data that changes on re-export. Catalog binaries stay cache-first.
-- **`Music_Catalog` is a sibling directory, not part of the repo.** Committed
-  `public/catalog/` is the build source on CI; build-catalog.mjs falls back to
-  it when the source dir is absent.
+- **`Music_Catalog` is a sibling directory, not part of the repo.** Its tree is
+  `<Artist>/<Title>/<section>/` (artist/song names from `song-info.json`);
+  build-catalog bundles each song as flat `Artist - Title` so catalog paths
+  stay stable — legacy flat dirs still work. Committed `public/catalog/` is
+  the build source on CI; build-catalog.mjs falls back to it when the source
+  dir is absent.
 - Section audio is `audio.mp3` (192k). `session.eartrainer.json.files.vocals`
   must point at the same file.
 - Session windows can differ from Hooktheory `keyFrames` (pickup extension,
