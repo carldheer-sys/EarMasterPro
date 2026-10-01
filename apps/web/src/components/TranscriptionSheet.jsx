@@ -42,7 +42,14 @@ function TranscriptionSheet({ open, onClose, url, title, sectionAnchor, isDark, 
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.text()
       })
-      .then(t => { if (!cancelled) setHtml(t) })
+      .then(t => {
+        // A stale catalog path answers 200 with the SPA shell (index.html) —
+        // srcDoc-ing it would render the whole app inside the sheet. Real
+        // transcription docs carry data-notation on <body>.
+        if (!t.includes('data-notation'))
+          throw new Error('catalog is stale — reload the app to refresh it')
+        if (!cancelled) setHtml(t)
+      })
       .catch(err => { if (!cancelled) setError(`Could not load transcription: ${err.message}`) })
     return () => {
       cancelled = true

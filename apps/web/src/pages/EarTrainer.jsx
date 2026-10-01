@@ -13,7 +13,7 @@ import {
   normalizeTimeSignature,
   timeSignatureToString,
 } from '@common/lib/midiUtils'
-import { loadCatalog, loadSectionSession, loadSectionAudio } from '@/lib/catalog'
+import { loadCatalog, loadSectionSession, loadSectionAudio, invalidateCatalog, StaleCatalogError } from '@/lib/catalog'
 import PianoRoll from '@/components/PianoRoll'
 import CatalogSheet from '@/components/CatalogSheet'
 import SettingsSheet from '@/components/SettingsSheet'
@@ -344,6 +344,7 @@ function EarTrainer() {
   const lastRawContextRef = useRef(null)
   const loadTokenRef = useRef(0)
   const audioAbortRef = useRef(null)
+  const staleRetryRef = useRef(null)
   const sectionRef = useRef(null) // {notes, chordsNotes, settings, capabilities}
 
   const capabilities = useMemo(() => {
@@ -1004,10 +1005,40 @@ function EarTrainer() {
       }
     } catch (err) {
       if (err.name === 'AbortError' || token !== loadTokenRef.current) return
+      // A catalog path serving HTML means the cached manifest predates an
+      // upstream rename/re-export — reload it once and retry the section id
+      // under fresh paths (per-entry guard prevents a retry loop).
+      if (err instanceof StaleCatalogError && staleRetryRef.current !== entry.id) {
+        staleRetryRef.current = entry.id
+        try {
+          invalidateCatalog()
+          const cat = await loadCatalog()
+          if (token !== loadTokenRef.current) return
+          setCatalog(cat)
+          for (const a of cat.artists ?? []) {
+            for (const s of a.songs ?? []) {
+              const hit = (s.sections ?? []).find(x => x.id === entry.id)
+              if (hit) {
+                setSelected({ artist: a.name, title: s.title, entry: hit })
+                return loadSection(a.name, s.title, hit)
+              }
+            }
+          }
+          setError('The catalog was updated — pick the section again from the Catalog.')
+          setLoading(false)
+          return
+        } catch (retryErr) {
+          if (retryErr.name === 'AbortError' || token !== loadTokenRef.current) return
+          // fall through to the generic error below
+        }
+      }
       console.error(err)
       setError(`Could not load section: ${err.message}`)
       setLoading(false)
     }
+    // loadSection is self-referenced for the stale-catalog retry above and
+    // cannot appear in its own deps (TDZ) — its inputs are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopPlayback, mode])
 
   // Initial catalog load + auto-select first section

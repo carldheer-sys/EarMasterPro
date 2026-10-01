@@ -10,14 +10,31 @@
 
 let catalogPromise = null
 
+/**
+ * A catalog URL that returns HTML means the in-memory manifest is stale:
+ * the dev/preview SPA fallback answers missing /catalog/* paths with
+ * index.html and HTTP 200, so JSON endpoints must check Content-Type.
+ */
+export class StaleCatalogError extends Error {
+  constructor(url) {
+    super(`catalog asset returned HTML, not JSON: ${url}`)
+    this.name = 'StaleCatalogError'
+    this.url = url
+  }
+}
+
+async function fetchJson(url, signal) {
+  const res = await fetch(url, { signal })
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
+  if ((res.headers.get('content-type') || '').includes('text/html'))
+    throw new StaleCatalogError(url)
+  return res.json()
+}
+
 /** Load the catalog manifest (cached for the session). */
 export function loadCatalog() {
   if (!catalogPromise) {
-    catalogPromise = fetch('/catalog/catalog.json')
-      .then(res => {
-        if (!res.ok) throw new Error(`catalog.json HTTP ${res.status}`)
-        return res.json()
-      })
+    catalogPromise = fetchJson('/catalog/catalog.json')
       .catch(err => {
         catalogPromise = null // allow retry
         throw err
@@ -26,15 +43,18 @@ export function loadCatalog() {
   return catalogPromise
 }
 
+/** Drop the cached manifest — paths change when songs are renamed/re-exported. */
+export function invalidateCatalog() {
+  catalogPromise = null
+}
+
 /**
  * Fetch a section's session JSON (notes, chords, annotations, settings).
  * The session embeds all note data — the .mid files are not needed at runtime.
  * `signal` aborts the fetch when the user switches sections quickly.
  */
 export async function loadSectionSession(entry, { signal } = {}) {
-  const res = await fetch(entry.assets.session, { signal })
-  if (!res.ok) throw new Error(`Session HTTP ${res.status}`)
-  return res.json()
+  return fetchJson(entry.assets.session, signal)
 }
 
 // ── Audio caches ────────────────────────────────────────────────────────────

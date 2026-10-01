@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-01T06:20:13.067Z",
+  "generatedAt": "2026-10-01T09:54:22.353Z",
   "artists": [
     {
       "name": "Alex Warren",
@@ -572,15 +572,15 @@
       ]
     },
     {
-      "name": "Lady Gaga",
+      "name": "Lady Gaga (ft. Bruno Mars)",
       "songs": [
         {
-          "title": "Die With A Smile (with Bruno Mars)",
-          "folder": "Lady Gaga - Die With A Smile (with Bruno Mars)",
-          "transcription": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/die-with-a-smile-verse-chorus-google-docs.html",
+          "title": "Die With A Smile",
+          "folder": "Lady Gaga (ft. Bruno Mars) - Die With A Smile",
+          "transcription": "/catalog/Lady%20Gaga%20(ft.%20Bruno%20Mars)%20-%20Die%20With%20A%20Smile/die-with-a-smile-verse-chorus-google-docs.html",
           "sections": [
             {
-              "id": "Lady Gaga - Die With A Smile (with Bruno Mars)/verse",
+              "id": "Lady Gaga (ft. Bruno Mars) - Die With A Smile/verse",
               "name": "verse",
               "label": "Verse",
               "key": "A",
@@ -592,10 +592,10 @@
               "melodyNotes": 98,
               "chordNotes": 34,
               "assets": {
-                "session": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/verse/session.eartrainer.json",
-                "melody": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/verse/melody.mid",
-                "chords": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/verse/chords.mid",
-                "audio": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/verse/audio.mp3"
+                "session": "/catalog/Lady%20Gaga%20(ft.%20Bruno%20Mars)%20-%20Die%20With%20A%20Smile/verse/session.eartrainer.json",
+                "melody": "/catalog/Lady%20Gaga%20(ft.%20Bruno%20Mars)%20-%20Die%20With%20A%20Smile/verse/melody.mid",
+                "chords": "/catalog/Lady%20Gaga%20(ft.%20Bruno%20Mars)%20-%20Die%20With%20A%20Smile/verse/chords.mid",
+                "audio": "/catalog/Lady%20Gaga%20(ft.%20Bruno%20Mars)%20-%20Die%20With%20A%20Smile/verse/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
@@ -605,7 +605,7 @@
               }
             },
             {
-              "id": "Lady Gaga - Die With A Smile (with Bruno Mars)/chorus",
+              "id": "Lady Gaga (ft. Bruno Mars) - Die With A Smile/chorus",
               "name": "chorus",
               "label": "Chorus",
               "key": "F#",
@@ -617,10 +617,10 @@
               "melodyNotes": 62,
               "chordNotes": 67,
               "assets": {
-                "session": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/chorus/session.eartrainer.json",
-                "melody": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/chorus/melody.mid",
-                "chords": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/chorus/chords.mid",
-                "audio": "/catalog/Lady%20Gaga%20-%20Die%20With%20A%20Smile%20(with%20Bruno%20Mars)/chorus/audio.mp3"
+                "session": "/catalog/Lady%20Gaga%20(ft.%20Bruno%20Mars)%20-%20Die%20With%20A%20Smile/chorus/session.eartrainer.json",
+                "melody": "/catalog/Lady%20Gaga%20(ft.%20Bruno%20Mars)%20-%20Die%20With%20A%20Smile/chorus/melody.mid",
+                "chords": "/catalog/Lady%20Gaga%20(ft.%20Bruno%20Mars)%20-%20Die%20With%20A%20Smile/chorus/chords.mid",
+                "audio": "/catalog/Lady%20Gaga%20(ft.%20Bruno%20Mars)%20-%20Die%20With%20A%20Smile/chorus/audio.mp3"
               },
               "capabilities": {
                 "melody": true,
