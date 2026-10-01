@@ -78,7 +78,9 @@ function TranscriptionSheet({ open, onClose, url, title, sectionAnchor, isDark, 
   return createPortal(
     <div className="fixed inset-0 z-[1000] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative flex h-[92vh] w-full flex-col overflow-hidden border shadow-2xl sm:h-[85vh] sm:max-w-3xl sm:rounded-3xl ${isDark ? 'border-white/10 bg-slate-950/95 text-white' : 'border-slate-300 bg-white/95 text-slate-900'} rounded-t-3xl backdrop-blur-xl`}>
+      {/* Opaque panel in light mode — a translucent bg + backdrop-filter
+          ancestor resamples the iframe's text (looks blurry). */}
+      <div className={`relative flex h-[92vh] w-full flex-col overflow-hidden border shadow-2xl sm:h-[85vh] sm:max-w-3xl sm:rounded-3xl ${isDark ? 'border-white/10 bg-slate-950/95 text-white backdrop-blur-xl' : 'border-slate-300 bg-white text-slate-900'} rounded-t-3xl`}>
         <div className={`flex items-center justify-between border-b px-5 py-4 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
           <div className="flex min-w-0 items-center gap-2.5">
             <FileText className={`h-5 w-5 shrink-0 ${isDark ? 'text-sky-300' : 'text-sky-600'}`} />
