@@ -24,7 +24,10 @@ import KeyboardPanel from '@/components/KeyboardPanel'
 
 const SPEED_OPTIONS = [0.25, 0.5, 0.75, 1]
 const SYNTH_CONFIG = { volume: -10 }
-const AUDIO_DB = -2
+const AUDIO_DB = -2              // fallback when a track has no measurement
+const AUDIO_TARGET_RMS_DB = -16  // normalize song audio to ~MIDI loudness
+const AUDIO_MAX_BOOST_DB = 6     // don't amplify quiet tracks beyond this
+const AUDIO_PEAK_CEIL_DB = -1    // post-gain sample peak ceiling (no clipping)
 const MAX_PLAYBACK_RECOVERY_ATTEMPTS = 3
 const STALE_AUDIO_REBUILD_MS = 2 * 60 * 1000
 
@@ -324,6 +327,7 @@ function EarTrainer() {
   // Refs
   const cursorRef = useRef(0)
   const audioPlayerRef = useRef(null)
+  const audioDbRef = useRef(AUDIO_DB)     // per-track loudness gain (dB)
   const noteTimersRef = useRef([])
   const notePendingRef = useRef([])   // enqueued-but-unfired audio-clock notes
   const stopTimerRef = useRef(null)
@@ -782,7 +786,7 @@ function EarTrainer() {
 
       if (src === 'full' && audioPlayerRef.current) {
         const bps = internalTempo / 60
-        audioPlayerRef.current.volume = AUDIO_DB
+        audioPlayerRef.current.volume = audioDbRef.current
         audioPlayerRef.current.start(
           speedRef.current,
           resumeBeat / bps,
@@ -987,10 +991,17 @@ function EarTrainer() {
 
       // Decode audio in the background (does not block the UI)
       if (caps.audio && entry.assets.audio) {
+        audioDbRef.current = AUDIO_DB      // reset until the new track is measured
         const ctx = Tone.getContext().rawContext
         loadSectionAudio(entry, ctx, { signal: controller.signal })
-          .then(async buffer => {
+          .then(async ({ buffer, rmsDb, peakDb }) => {
             if (token !== loadTokenRef.current) return
+            // Loudness-normalize toward MIDI level: pure gain, never clips
+            // (boost is capped by the track's own sample-peak headroom).
+            audioDbRef.current = Math.min(
+              AUDIO_TARGET_RMS_DB - rmsDb,
+              AUDIO_MAX_BOOST_DB,
+              AUDIO_PEAK_CEIL_DB - peakDb)
             const player = new GranularPlayer()
             player.loadBuffer(buffer)
             try { await player.initialize(ctx) } catch (_) { /* fallback path still works */ }

@@ -72,13 +72,30 @@ function cacheSet(map, key, value) {
   while (map.size > MAX_AUDIO_CACHE) map.delete(map.keys().next().value)
 }
 
-/** Fetch + decode a section's audio (mp3) into an AudioBuffer. */
+/** Integrated RMS + sample peak of a decoded buffer, in dBFS. */
+export function measureBufferLevel(buffer) {
+  let sumSq = 0, peak = 0, n = 0
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    const data = buffer.getChannelData(ch)
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i]
+      sumSq += v * v
+      const a = v < 0 ? -v : v
+      if (a > peak) peak = a
+    }
+    n += data.length
+  }
+  const toDb = x => 20 * Math.log10(Math.max(x, 1e-9))
+  return { rmsDb: toDb(Math.sqrt(sumSq / Math.max(1, n))), peakDb: toDb(peak) }
+}
+
+/** Fetch + decode a section's audio (mp3) into an AudioBuffer + loudness. */
 export async function loadSectionAudio(entry, audioContext, { signal } = {}) {
   const url = entry.assets.audio
   const hit = decodedAudioCache.get(url)
   if (hit && hit.ctx === audioContext) {
     cacheSet(decodedAudioCache, url, hit)
-    return hit.buffer
+    return { buffer: hit.buffer, rmsDb: hit.rmsDb, peakDb: hit.peakDb }
   }
 
   let bytes = compressedAudioCache.get(url)
@@ -91,6 +108,7 @@ export async function loadSectionAudio(entry, audioContext, { signal } = {}) {
   if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
 
   const buffer = await audioContext.decodeAudioData(bytes.slice(0))
-  cacheSet(decodedAudioCache, url, { ctx: audioContext, buffer })
-  return buffer
+  const { rmsDb, peakDb } = measureBufferLevel(buffer)
+  cacheSet(decodedAudioCache, url, { ctx: audioContext, buffer, rmsDb, peakDb })
+  return { buffer, rmsDb, peakDb }
 }

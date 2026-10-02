@@ -191,9 +191,13 @@ function renderNotes(ctx, { notes, beatWidth, cellH, lowestNote, highestNote, vi
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
         ctx.fillStyle = labelNonDiatonic ? 'rgb(239, 68, 68)' : (isDark ? 'rgb(255, 255, 255)' : 'rgb(30, 41, 59)')
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)'
-        ctx.shadowBlur = 3
-        ctx.shadowOffsetY = 1
+        // Dark halo only on the dark grid — on light it reads as a blur
+        // around the (already dark) glyphs.
+        if (isDark) {
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.8)'
+          ctx.shadowBlur = 3
+          ctx.shadowOffsetY = 1
+        }
         ctx.fillText(label, q(x0 + w / 2), q(y - 6))
         ctx.shadowColor = 'transparent'
         ctx.shadowBlur = 0
