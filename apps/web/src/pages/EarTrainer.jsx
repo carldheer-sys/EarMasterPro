@@ -108,8 +108,13 @@ function clearTimerList(timerRef) {
   timerRef.current = []
 }
 
-const AUDIO_LOOKAHEAD_S = 0.4   // how far ahead of the audio clock we enqueue
+const AUDIO_LOOKAHEAD_S = 0.4   // minimum audio-clock look-ahead (raised on high-latency routes)
+const AUDIO_LOOKAHEAD_MAX_S = 1.5
 const AUDIO_TICK_MS = 100       // scheduler wake-up interval
+// 'playback' gives the largest output buffer the platform allows. Never retry
+// with 'interactive' — its tiny buffer underruns on Bluetooth and turns one
+// transient hiccup into permanent stutter.
+const PLAYBACK_LATENCY_HINT = 'playback'
 
 /**
  * Look-ahead scheduler: ONE interval enqueues notes for the next ~0.4 s at
@@ -122,7 +127,7 @@ const AUDIO_TICK_MS = 100       // scheduler wake-up interval
  * we schedule triggerRelease at each pending attack time (silent cancel) and
  * releaseAll() the players for sounding notes.
  */
-function scheduleNotesAudioClock(notes, { regionBeats, tempo, resumeRegionBeat, looping, timerRef, pendingRef }) {
+function scheduleNotesAudioClock(notes, { regionBeats, tempo, resumeRegionBeat, looping, timerRef, pendingRef, lookaheadS = AUDIO_LOOKAHEAD_S }) {
   if (!notes.length || regionBeats <= 0) return
   const ctx = Tone.getContext().rawContext
   if (!ctx) return
@@ -146,7 +151,7 @@ function scheduleNotesAudioClock(notes, { regionBeats, tempo, resumeRegionBeat, 
   }
 
   const enqueue = () => {
-    const horizonP = origin + (ctx.currentTime + AUDIO_LOOKAHEAD_S - t0) / spb
+    const horizonP = origin + (ctx.currentTime + lookaheadS - t0) / spb
     if (horizonP <= scheduledUntil) return
     for (const n of notes) {
       if (!looping) {
@@ -382,7 +387,7 @@ function EarTrainer() {
     lastRawContextRef.current = null
   }, [])
 
-  const ensureFreshAudioContext = useCallback(async ({ force = false, latencyHint = 'playback', start = true } = {}) => {
+  const ensureFreshAudioContext = useCallback(async ({ force = false, latencyHint = PLAYBACK_LATENCY_HINT, start = true } = {}) => {
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
     const rawBefore = Tone.getContext().rawContext
     const isClosed = Tone.getContext().state === 'closed' || rawBefore?.state === 'closed'
@@ -415,6 +420,10 @@ function EarTrainer() {
     if (contextChanged) {
       resetAudioStateAfterContextChange()
       setContextEpoch(e => e + 1) // decoded audio + statechange listener rebind
+      try {
+        console.debug('[audio] context swapped — outputLatency:', rawContext?.outputLatency?.toFixed?.(3),
+          'baseLatency:', rawContext?.baseLatency?.toFixed?.(3), 'hint:', latencyHint)
+      } catch (_) {}
     }
     lastRawContextRef.current = rawContext
     return { rawContext, contextChanged: contextChanged || (force && isClosed) }
@@ -496,7 +505,9 @@ function EarTrainer() {
     try { Tone.getTransport().cancel() } catch (_) {}
     try { Tone.getTransport().stop() } catch (_) {}
     lastRawContextRef.current = null
-    const latencyHint = attempt >= 2 ? 'interactive' : 'playback'
+    // Always 'playback' — 'interactive' shrinks the output buffer and makes
+    // Bluetooth stutter worse on every subsequent retry.
+    const latencyHint = PLAYBACK_LATENCY_HINT
     // From the second attempt on, replace the context outright — the old one
     // may be stuck in a state resume() can't escape (iOS 'interrupted').
     if (attempt >= 2) swapToneContext(latencyHint)
@@ -513,10 +524,23 @@ function EarTrainer() {
 
   const verifyPlaybackStarted = useCallback((playbackToken, before, isSoundDue = () => false) => {
     if (playbackWatchdogTimerRef.current) window.clearTimeout(playbackWatchdogTimerRef.current)
+    // A rebuild tears down the whole graph — audible as a hard stop. On
+    // high-latency routes (Bluetooth) the context clock advances in bursts
+    // and can stall >1s while audio still flows, so a single bad tick must
+    // never trigger recovery — only a persistent stall does.
+    let deadTicks = 0
     const tick = async () => {
       if (playbackToken !== playbackTokenRef.current || document.visibilityState !== 'visible'
           || playbackStateRef.current !== 'playing') return
       const rawContext = Tone.getContext().rawContext
+      // 'interrupted' is an OS hold (call, Siri, BT route renegotiation). The
+      // statechange auto-heal resumes when it ends; rebuilding while the OS
+      // holds the session only births another interrupted context. Count it
+      // as neither healthy nor dead — recheck soon.
+      if (Tone.getContext().state === 'interrupted' || rawContext?.state === 'interrupted') {
+        playbackWatchdogTimerRef.current = window.setTimeout(tick, 1000)
+        return
+      }
       const rawAdvanced = rawContext ? rawContext.currentTime > before.rawTime + 0.15 : false
       const ticksAdvanced = Tone.getTransport().ticks > before.transportTicks + 2
       const cursorAdvanced = cursorRef.current > before.cursorPosition + 0.001
@@ -538,6 +562,7 @@ function EarTrainer() {
       }
       if (Tone.getContext().state === 'running' && rawAdvanced && (ticksAdvanced || cursorAdvanced) && audiblyAlive) {
         playbackRecoveryAttemptRef.current = 0
+        deadTicks = 0
         // Keep monitoring clock health while playing — iOS can kill the
         // render thread mid-play; a frozen clock is unambiguous (silence is
         // not, so it's skipped on periodic ticks).
@@ -548,6 +573,13 @@ function EarTrainer() {
           checkSilence: false,
         }
         playbackWatchdogTimerRef.current = window.setTimeout(tick, 2000)
+        return
+      }
+      deadTicks += 1
+      if (deadTicks < 2) {
+        // Bluetooth output stalls the reported clock in ~1s bursts while
+        // buffered audio still plays — recheck quickly instead of rebuilding.
+        playbackWatchdogTimerRef.current = window.setTimeout(tick, 1200)
         return
       }
       // First: try a plain resume before rebuilding
@@ -563,6 +595,7 @@ function EarTrainer() {
           const nowAudible = !(before.checkSilence && nowAdvanced && isSoundDue()) || audioEngine.getOutputLevel() > 1e-4
           if (Tone.getContext().state === 'running' && nowAdvanced && nowAudible && Tone.getTransport().ticks > before.transportTicks + 2) {
             playbackRecoveryAttemptRef.current = 0
+            deadTicks = 0
             before = {
               rawTime: nowCtx.currentTime,
               transportTicks: Tone.getTransport().ticks,
@@ -605,7 +638,7 @@ function EarTrainer() {
       setError('')
       // Unlock audio (requires user gesture on mobile)
       try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
-      await ensureFreshAudioContext({ latencyHint: playbackRecoveryAttemptRef.current >= 2 ? 'interactive' : 'playback' })
+      await ensureFreshAudioContext({ latencyHint: PLAYBACK_LATENCY_HINT })
 
       const resumeFromPause = playbackState === 'paused' || (playbackState === 'stopped' && seekBeatRef.current > 0)
       if (!resumeFromPause) {
@@ -739,6 +772,13 @@ function EarTrainer() {
 
       if (midiNotes.length) {
         notePendingRef.current = []
+        // Size the note queue to the measured route latency: on Bluetooth the
+        // output buffer is 200–500ms+ and ctx.currentTime advances in bursts —
+        // a 0.4s horizon would run dry during a stall and drop notes. Speakers
+        // keep the 0.4s minimum. Enqueued notes are cancelled on stop/seek, so
+        // a longer horizon is free.
+        const outLatency = audioContext?.outputLatency || audioContext?.baseLatency || 0
+        const lookaheadS = Math.max(AUDIO_LOOKAHEAD_S, Math.min(AUDIO_LOOKAHEAD_MAX_S, outLatency + 0.6))
         scheduleNotesAudioClock(midiNotes, {
           regionBeats,
           tempo: effectiveTempo,
@@ -746,6 +786,7 @@ function EarTrainer() {
           looping: isLoopingRef.current,
           timerRef: noteTimersRef,
           pendingRef: notePendingRef,
+          lookaheadS,
         })
       }
 
@@ -933,6 +974,24 @@ function EarTrainer() {
     native.addEventListener('statechange', onStateChange)
     return () => native.removeEventListener('statechange', onStateChange)
   }, [contextEpoch])
+
+  // Bluetooth device (dis)connect fires devicechange and usually a session
+  // interruption. While playing, don't rebuild — a route change resolves in
+  // well under a second; re-assert 'playback' and nudge resume so the
+  // statechange auto-heal + watchdog finish the job if the OS needs longer.
+  useEffect(() => {
+    const md = navigator.mediaDevices
+    if (!md?.addEventListener) return
+    const onDeviceChange = () => {
+      if (playbackStateRef.current !== 'playing' || document.visibilityState !== 'visible') return
+      try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
+      if (Tone.getContext().state === 'suspended') resumeWithTimeout(Tone.getContext().resume(), 800)
+      const raw = Tone.getContext()?.rawContext
+      if (raw?.state === 'suspended') resumeWithTimeout(raw.resume(), 800)
+    }
+    md.addEventListener('devicechange', onDeviceChange)
+    return () => md.removeEventListener('devicechange', onDeviceChange)
+  }, [])
 
   // ── Catalog + section loading ────────────────────────────────────────────
 

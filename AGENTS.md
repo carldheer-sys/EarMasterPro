@@ -61,9 +61,17 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   `._nativeContext` for native-API construction (see `GranularPlayer`);
   wrapped nodes connect via `wrappedNode._nativeAudioNode`.
 - **Note scheduling is audio-clock look-ahead** (`scheduleNotesAudioClock` in
-  EarTrainer): one 100ms interval enqueues notes ~0.4s ahead at absolute
+  EarTrainer): one 100ms interval enqueues notes ≥0.4s ahead at absolute
   AudioContext times — never schedule notes with per-note `setTimeout`
-  (timer jitter = audible stutter on mobile).
+  (timer jitter = audible stutter on mobile). The horizon is widened to
+  `ctx.outputLatency + 0.6s` (≤1.5s) on high-latency routes like Bluetooth,
+  whose clock advances in bursts long enough to starve a 0.4s window.
+- **Latency hint is always `'playback'`** (`PLAYBACK_LATENCY_HINT`) — never
+  retry with `'interactive'`: its small output buffer underruns on Bluetooth.
+- **Watchdog rebuilds need 2 consecutive dead ticks** — a single stalled-clock
+  window is normal on Bluetooth and must not tear down the graph (a rebuild is
+  an audible stop). `interrupted` states are neutral ticks: the statechange
+  auto-heal handles them; a rebuilt context is born interrupted too.
 - **PianoRoll canvas is viewport-sized** and follows scroll via a transform in
   the RAF loop — never size it to `gridWidth × dpr` (exceeds iOS canvas limits
   and repaints the whole grid per scroll tick).
