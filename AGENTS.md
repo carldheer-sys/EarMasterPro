@@ -93,8 +93,19 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   fallback when a render/element fails — never play both at once.
 - **Loudness is baked into the WAV samples** — `el.volume` is read-only on
   iOS, so `encodeWavPcm16` applies the gain while interleaving (peak-safe,
-  hard-clipped). Bounce results are cached by a JSON key of every audible
-  input (`bounceKeyOf`); revoking a URL the element is playing is forbidden.
+  hard-clipped). Song WAVs hit `AUDIO_TARGET_RMS_DB` (−16); rendered mixes
+  hit `BOUNCE_TARGET_RMS_DB` (−17), clamped by `AUDIO_PEAK_CEIL_DB` — the
+  limiter leaves little headroom on loud renders, which is correct.
+  Bounce results are cached by a JSON key of every audible input
+  (`bounceKeyOf`); revoking a URL the element is playing is forbidden.
+- **A media pause keeps the drone alive like a WebAudio pause** — the baked
+  drone freezes with the element, so `pausePlayback` voices a live drone at
+  the paused key (`startPausedDrone`); the next media `start` stops it
+  (cleanup → `stopDrone`) because the voice is inside the bounce.
+- **Instrument volumes live in `INSTRUMENT_CONFIGS`/`SYNTH_TYPES` only** —
+  the live engine and `buildInstrument` in sectionBounce read the same
+  tables; never tune one path without the other. Drone level is
+  `volumeDb − 1dB` in both `_startDroneLoop` and the bounce.
 - **`MediaSongPlayer.prime()` must run inside the user gesture** — a bounce
   render can outlive user-activation; playing a 1-frame silent WAV once
   unlocks both elements for the session.

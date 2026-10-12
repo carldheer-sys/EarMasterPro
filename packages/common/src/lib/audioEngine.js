@@ -19,7 +19,7 @@ export const SYNTH_TYPES = {
   synth: {
     oscillator: { type: 'triangle' },
     envelope: { attack: 0.005, decay: 0.1, sustain: 0.4, release: 1 },
-    volume: -10,
+    volume: -6,   // triangle is far sparser than the fatsawtooth pad at equal gain
   },
   pad: {
     oscillator: { type: 'fatsawtooth', count: 3, spread: 22 },
@@ -32,7 +32,7 @@ export const SYNTH_TYPES = {
 // Per-instrument defaults for the sample-based sounds (from the previous app
 // version). Volume compensates for each sample set's loudness.
 export const INSTRUMENT_CONFIGS = {
-  synth: { volume: -10 },
+  synth: { volume: -6 },
   pad: { volume: -10 },
   piano: { attack: 0.02, release: 1, volume: -6 },
   violin: { attack: 0.1, release: 1.2, volume: -4 },
@@ -1050,14 +1050,14 @@ class AudioEngine {
     })
   }
 
-  // Looped buffer → Tone.Gain → midiGain. Level ≈ the old fundamental
-  // layer (volumeDb −3dB): the baked texture already carries the octave /
+  // Looped buffer → Tone.Gain → midiGain. Level sits ~1dB under the voice
+  // bus (volumeDb −1dB): the baked texture already carries the octave /
   // fifth / shimmer partials the 4-layer synth stack used to add.
   _startDroneLoop(buffer, freq, band, volumeDb) {
     const src = new Tone.ToneBufferSource(buffer)
     src.loop = true
     src.playbackRate.value = freq / droneBandRef(band)
-    const g = new Tone.Gain(Math.pow(10, (volumeDb - 3) / 20)).connect(this.midiGain)
+    const g = new Tone.Gain(Math.pow(10, (volumeDb - 1) / 20)).connect(this.midiGain)
     src.connect(g)
     src.start()
     this.droneSources.push(src)

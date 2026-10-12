@@ -15,7 +15,7 @@ import {
   normalizeTimeSignature,
   timeSignatureToString,
 } from '@common/lib/midiUtils'
-import { loadCatalog, loadSectionSession, loadSectionAudio, invalidateCatalog, StaleCatalogError } from '@/lib/catalog'
+import { loadCatalog, loadSectionSession, loadSectionAudio, invalidateCatalog, StaleCatalogError, measureBufferLevel } from '@/lib/catalog'
 import PianoRoll from '@/components/PianoRoll'
 import CatalogSheet from '@/components/CatalogSheet'
 import SettingsSheet from '@/components/SettingsSheet'
@@ -25,11 +25,13 @@ import KeyboardPanel from '@/components/KeyboardPanel'
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const SPEED_OPTIONS = [0.25, 0.5, 0.75, 1]
-const SYNTH_CONFIG = { volume: -10 }
+const SYNTH_CONFIG = INSTRUMENT_CONFIGS.synth
 const AUDIO_DB = -2              // fallback when a track has no measurement
 const AUDIO_TARGET_RMS_DB = -16  // normalize song audio to ~MIDI loudness
 const AUDIO_MAX_BOOST_DB = 6     // don't amplify quiet tracks beyond this
 const AUDIO_PEAK_CEIL_DB = -1    // post-gain sample peak ceiling (no clipping)
+const BOUNCE_TARGET_RMS_DB = -17 // rendered MIDI mixes sit ~1dB under the song
+const BOUNCE_MAX_BOOST_DB = 12   // sparse renders may need a big lift
 const MAX_PLAYBACK_RECOVERY_ATTEMPTS = 3
 const STALE_AUDIO_REBUILD_MS = 2 * 60 * 1000
 
@@ -505,6 +507,29 @@ function EarTrainer() {
     setPlaybackState('stopped')
   }, [])
 
+  // On media pause of a drone source the baked drone freezes with the
+  // element — keep the tonal reference alive with a live drone at the key
+  // under the paused beat, matching the WebAudio pause behavior. It is
+  // stopped on the next media start (its voice is inside the bounce) and on
+  // stopPlayback via audioEngine.stop().
+  const startPausedDrone = useCallback((beat) => {
+    const src = sourceRef.current
+    if (src !== 'melody-drone' && src !== 'chords-drone') return
+    const sec = sectionRef.current
+    if (!sec) return
+    const events = sec.keyEvents?.length ? sec.keyEvents : [{ beat: 0, key: sec.settings.key }]
+    let key = events[0].key
+    for (const e of events) { if (e.beat <= beat) key = e.key; else break }
+    dronePlayingRef.current = true   // set synchronously — drives the
+    droneKeyRef.current = key        // audioSession-type decision below
+    const us = userSettingsRef.current
+    // 128 beats ≈ a long pause for the legacy-synth fallback path (the baked
+    // loop ignores the duration — it free-runs until stopDrone).
+    audioEngine.ensureActive({ loadDefaultPiano: false })
+      .then(() => audioEngine.scheduleDroneNotes(key, Math.max(sec.totalBeats, 128), us.droneVolume))
+      .catch(() => { dronePlayingRef.current = false })
+  }, [])
+
   const pausePlayback = useCallback(() => {
     if (playbackState !== 'playing') return
     if (mediaBeatMapRef.current && mediaPlayerRef.current) {
@@ -513,6 +538,7 @@ function EarTrainer() {
       pausedBeatRef.current = mediaBeatMapRef.current(mediaPlayerRef.current.positionSec)
       if (mediaWatchTimerRef.current) { window.clearInterval(mediaWatchTimerRef.current); mediaWatchTimerRef.current = null }
       mediaPlayerRef.current.pause()
+      startPausedDrone(pausedBeatRef.current)
     } else {
       const { startBeat, effectiveTempo } = currentRegionRef.current
       const elapsedBeats = Math.max(0, (Tone.now() - playbackStartTimeRef.current) * effectiveTempo / 60)
@@ -543,7 +569,7 @@ function EarTrainer() {
     try { if (navigator.mediaSession) navigator.mediaSession.playbackState = 'none' } catch (_) {}
     playbackStateRef.current = 'paused'
     setPlaybackState('paused')
-  }, [playbackState])
+  }, [playbackState, startPausedDrone])
 
   // ── Playback recovery (watchdog, ported) ─────────────────────────────────
 
@@ -745,7 +771,12 @@ function EarTrainer() {
       entry.promise = (async () => {
         const rendered = await bounceSection(params)
         if (!rendered) { bounceCacheRef.current.delete(key); return null }
-        const blob = encodeWavPcm16(rendered.buf, 1)
+        // Loudness-normalize the mix like the song audio — pure baked gain
+        // (the limiter leaves little peak headroom on loud renders, which is
+        // correct: they're already near full scale).
+        const { rmsDb, peakDb } = measureBufferLevel(rendered.buf)
+        const gainDb = Math.min(BOUNCE_TARGET_RMS_DB - rmsDb, BOUNCE_MAX_BOOST_DB, AUDIO_PEAK_CEIL_DB - peakDb)
+        const blob = encodeWavPcm16(rendered.buf, Math.pow(10, gainDb / 20))
         const url = newMediaUrl(blob)
         if (entry.revoked) { URL.revokeObjectURL(url); return null }
         return { url, seconds: rendered.seconds }
@@ -781,6 +812,11 @@ function EarTrainer() {
     const looping = isLoopingRef.current
     const resumeRegionBeat = resumeBeat - startBeat
     const cleanup = () => {
+      // A media pause may have voiced a live drone — the bounce has it baked
+      // in, so silence the live voice first (short release ramp, no click).
+      try { audioEngine.stopDrone() } catch (_) {}
+      dronePlayingRef.current = false
+      droneKeyRef.current = null
       if (!resumeFromPause) stopPlayback({ keepPreparing: true, keepRecovery: playbackRecoveryAttemptRef.current })
       else {
         clearTimerList(noteTimersRef)

@@ -173,7 +173,8 @@ export async function bounceSection({
     // Drone segments — baked loops (same voicing as _startDroneLoop) with a
     // Sonofield-style envelope: ~1s attack per segment, 2s release tail that
     // overlaps the next key change into a true crossfade.
-    const droneLevel = Math.pow(10, (droneDb - 3) / 20)
+    // Same level as the live _startDroneLoop: ~1dB under the voice bus.
+    const droneLevel = Math.pow(10, (droneDb - 1) / 20)
     for (const { seg, freq, band, buffer } of droneLoops) {
       if (!buffer) continue
       const t0 = seg.start * spb
