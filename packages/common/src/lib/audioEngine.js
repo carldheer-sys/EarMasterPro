@@ -1,6 +1,7 @@
 import * as Tone from 'tone'
 import SampleLibrary from './Tonejs-Instruments'
 import { getInternalBpm, normalizeKeyName } from './midiUtils'
+import { droneBandIndex, droneBandRef, droneLoopPromise } from './droneBaker'
 
 // MIDI note number → note name (middle C = C4 = 60)
 const MIDI_NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -14,7 +15,7 @@ const FETCH_CONCURRENCY = 6
 
 // Generated (non-sampled) instrument definitions, created as Tone.PolySynths.
 // `filter` (Hz) adds a lowpass on the synth's output for a softer pad tone.
-const SYNTH_TYPES = {
+export const SYNTH_TYPES = {
   synth: {
     oscillator: { type: 'triangle' },
     envelope: { attack: 0.005, decay: 0.1, sustain: 0.4, release: 1 },
@@ -119,7 +120,7 @@ export function swapToneContext(latencyHint = 'playback') {
 }
 
 // Tonic name → MIDI note number at octave 2
-function tonicToMidi(tonic, octave = 2) {
+export function tonicToMidi(tonic, octave = 2) {
   const idx = MIDI_NOTE_NAMES.indexOf(normalizeKeyName(tonic))
   if (idx === -1) return 45 // fallback A2
   return (octave + 1) * 12 + idx
@@ -162,10 +163,13 @@ class AudioEngine {
     this.droneLfos = []
     this.droneGains = []          // per-layer gain nodes (must be disposed with the drone)
     this.droneScheduledEvents = []
+    this.droneSources = []        // looped buffer sources (baked-loop drone path)
+    this._droneEpoch = 0          // bumped on stop — aborts in-flight loop renders
 
     // Instrument loading: dedupe concurrent loads and remember instruments
     // with no sample map so they don't re-warn on every play.
     this.instrumentLoads = {}
+    this._byteWarmups = {}
     this.missingInstruments = new Set()
     
     // Live MIDI keyboard notes (for real-time playing)
@@ -572,13 +576,19 @@ class AudioEngine {
         oscillator: def.oscillator,
         envelope: def.envelope,
       })
+      // Sonofield-style ~20% chorus send: widens the generated voices;
+      // sampled instruments keep their real timbre + the reverb send.
+      const chorus = new Tone.Chorus(1.2, 4, 0.5).start()
+      chorus.wet.value = 0.2
+      chorus.connect(this.midiGain)
       if (def.filter) {
-        const filter = new Tone.Filter(def.filter, 'lowpass').connect(this.midiGain)
+        const filter = new Tone.Filter(def.filter, 'lowpass').connect(chorus)
         synth.connect(filter)
         synth.filterNode = filter
       } else {
-        synth.connect(this.midiGain)
+        synth.connect(chorus)
       }
+      synth.chorusNode = chorus
 
       synth.volume.value = config.volume !== undefined ? config.volume : def.volume
       this.synths[instrument] = synth
@@ -600,32 +610,8 @@ class AudioEngine {
     }
 
     // Ensure all samples are fetched and cached as ArrayBuffers
-    if (!sampleArrayBufferCache[instrument]) {
-      sampleArrayBufferCache[instrument] = new Map()
-    }
-    const cache = sampleArrayBufferCache[instrument]
+    const cache = await this._ensureSampleBytes(instrument)
     const entries = Object.entries(noteMap)
-    const uncached = entries.filter(([note]) => !cache.has(note))
-
-    if (uncached.length > 0) {
-      console.log(`[AudioEngine] Fetching ${uncached.length} samples for ${instrument}...`)
-      // Fetch with limited concurrency to avoid ERR_INSUFFICIENT_RESOURCES
-      for (let i = 0; i < uncached.length; i += FETCH_CONCURRENCY) {
-        const batch = uncached.slice(i, i + FETCH_CONCURRENCY)
-        await Promise.all(batch.map(async ([note, filename]) => {
-          if (cache.has(note)) return
-          const url = SAMPLE_BASE_URL + instrument + '/' + filename
-          try {
-            const response = await fetch(url)
-            if (!response.ok) throw new Error(`HTTP ${response.status}`)
-            const buffer = await response.arrayBuffer()
-            cache.set(note, buffer)
-          } catch (e) {
-            console.warn(`[AudioEngine] Failed to fetch ${instrument}/${note}:`, e.message)
-          }
-        }))
-      }
-    }
 
     // Decode cached ArrayBuffers with the current AudioContext
     // slice(0) creates a copy because decodeAudioData detaches the buffer
@@ -647,6 +633,62 @@ class AudioEngine {
     sampler.connect(this.midiGain)
     this.samplers[instrument] = sampler
     this.applyInstrumentConfig(instrument, config)
+  }
+
+  // Fetch (but don't decode) an instrument's samples into the module-level
+  // ArrayBuffer cache + SW cache. Separated from sampler construction so a
+  // configured instrument can be warmed in the background — first play
+  // then only decodes, and a later offline session finds bytes cached.
+  // Deduped per instrument: a load joining an in-flight warmup shares it.
+  _ensureSampleBytes(instrument) {
+    const noteMap = SampleLibrary[instrument]
+    if (!noteMap) return Promise.resolve(new Map())
+    if (this._byteWarmups[instrument]) return this._byteWarmups[instrument]
+    const task = this._ensureSampleBytesInner(instrument, noteMap)
+    this._byteWarmups[instrument] = task
+    return task.finally(() => { delete this._byteWarmups[instrument] })
+  }
+
+  async _ensureSampleBytesInner(instrument, noteMap) {
+    if (!sampleArrayBufferCache[instrument]) {
+      sampleArrayBufferCache[instrument] = new Map()
+    }
+    const cache = sampleArrayBufferCache[instrument]
+    const uncached = Object.keys(noteMap).filter((note) => !cache.has(note))
+
+    if (uncached.length > 0) {
+      console.log(`[AudioEngine] Fetching ${uncached.length} samples for ${instrument}...`)
+      // Fetch with limited concurrency to avoid ERR_INSUFFICIENT_RESOURCES
+      for (let i = 0; i < uncached.length; i += FETCH_CONCURRENCY) {
+        const batch = uncached.slice(i, i + FETCH_CONCURRENCY)
+        await Promise.all(batch.map(async (note) => {
+          if (cache.has(note)) return
+          const url = SAMPLE_BASE_URL + instrument + '/' + noteMap[note]
+          try {
+            const response = await fetch(url)
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            const buffer = await response.arrayBuffer()
+            cache.set(note, buffer)
+          } catch (e) {
+            console.warn(`[AudioEngine] Failed to fetch ${instrument}/${note}:`, e.message)
+          }
+        }))
+      }
+    }
+    return cache
+  }
+
+  // Fire-and-forget sample warmup for a configured instrument — no-op for
+  // generated synths and unknown instruments.
+  prefetchInstrumentBytes(instrument) {
+    if (SYNTH_TYPES[instrument] || !SampleLibrary[instrument]) return
+    this._ensureSampleBytes(instrument).catch(() => {})
+  }
+
+  // Public awaitable form of _ensureSampleBytes — the offline bounce path
+  // needs the same module-level byte cache before decoding.
+  ensureInstrumentBytes(instrument) {
+    return this._ensureSampleBytes(instrument)
   }
 
   applyInstrumentConfig(instrument, config = {}) {
@@ -675,6 +717,7 @@ class AudioEngine {
   setInstrumentConfig(instrument, config = {}) {
     this.instrumentConfigs[instrument] = config
     this.applyInstrumentConfig(instrument, config)
+    this.prefetchInstrumentBytes(instrument)
   }
 
   async start(startBeat = 0) {
@@ -982,6 +1025,48 @@ class AudioEngine {
   scheduleDroneNotes(tonic, regionBeats, volumeDb = 0) {
     this.stopDrone()
 
+    const midi = tonicToMidi(tonic, 2)                  // e.g. A2 = 45
+    const freq = 440 * Math.pow(2, (midi - 69) / 12)
+    const band = droneBandIndex(freq)
+    const epoch = ++this._droneEpoch
+    const sr = Tone.getContext()?.rawContext?.sampleRate || 44100
+
+    // Baked-loop drone (Sonofield-style): a seamless stereo AudioBuffer
+    // rendered once per octave band and retuned with playbackRate. The
+    // render is async — attach under an epoch guard so a stop/re-voice
+    // that raced it can't resurrect a dead drone. First use per band costs
+    // ~50–150ms (hidden under the attack ramp); cached afterwards.
+    droneLoopPromise(band, sr).then((buffer) => {
+      if (epoch !== this._droneEpoch || !this.midiGain) return
+      if (buffer) {
+        this._startDroneLoop(buffer, freq, band, volumeDb)
+      } else {
+        this._scheduleDroneSynthFallback(tonic, regionBeats, volumeDb)
+      }
+    }).catch(() => {
+      if (epoch === this._droneEpoch && this.midiGain) {
+        this._scheduleDroneSynthFallback(tonic, regionBeats, volumeDb)
+      }
+    })
+  }
+
+  // Looped buffer → Tone.Gain → midiGain. Level ≈ the old fundamental
+  // layer (volumeDb −3dB): the baked texture already carries the octave /
+  // fifth / shimmer partials the 4-layer synth stack used to add.
+  _startDroneLoop(buffer, freq, band, volumeDb) {
+    const src = new Tone.ToneBufferSource(buffer)
+    src.loop = true
+    src.playbackRate.value = freq / droneBandRef(band)
+    const g = new Tone.Gain(Math.pow(10, (volumeDb - 3) / 20)).connect(this.midiGain)
+    src.connect(g)
+    src.start()
+    this.droneSources.push(src)
+    this.droneGains.push(g)
+  }
+
+  // Legacy 4-layer pad — kept as the fallback when OfflineAudioContext is
+  // unavailable or the bake fails.
+  _scheduleDroneSynthFallback(tonic, regionBeats, volumeDb = 0) {
     const fundamental = tonicToMidi(tonic, 2)           // e.g. A2 = 45
     const octave      = fundamental + 12                 // A3
     const fifth       = fundamental + 19                 // E3 (perfect 5th above A2)
@@ -1041,6 +1126,8 @@ class AudioEngine {
   }
 
   stopDrone() {
+    this._droneEpoch++ // abort any in-flight loop render/attach
+
     // Clear scheduled Transport events
     for (const id of this.droneScheduledEvents) {
       try { Tone.getTransport().clear(id) } catch (_) {}
@@ -1059,12 +1146,24 @@ class AudioEngine {
     }
     this.droneSynths = []
 
-    // Dispose the per-layer gain nodes (leak fix: they stay connected to
-    // midiGain otherwise and accumulate across every drone start).
-    for (const g of this.droneGains) {
-      try { g.dispose() } catch (_) {}
+    // Short release ramp on the per-drone gains (~0.25s) so loop sources
+    // and pad layers stop without a click; dispose is deferred so the tail
+    // can actually play out.
+    const now = Tone.now()
+    const retiringSources = this.droneSources.splice(0)
+    const retiringGains = this.droneGains.splice(0)
+    for (const g of retiringGains) {
+      try { g.gain.setTargetAtTime(0, now, 0.08) } catch (_) {}
     }
-    this.droneGains = []
+    for (const s of retiringSources) {
+      try { s.stop(now + 0.3) } catch (_) {}
+    }
+    if (retiringSources.length || retiringGains.length) {
+      setTimeout(() => {
+        for (const s of retiringSources) { try { s.dispose() } catch (_) {} }
+        for (const g of retiringGains) { try { g.dispose() } catch (_) {} }
+      }, 500)
+    }
   }
 
   dispose() {
@@ -1078,6 +1177,7 @@ class AudioEngine {
     Object.values(this.samplers).forEach(sampler => { try { sampler.dispose() } catch (_) {} })
     Object.values(this.synths).forEach(synth => {
       try { synth.filterNode?.dispose() } catch (_) {}
+      try { synth.chorusNode?.dispose() } catch (_) {}
       try { synth.dispose() } catch (_) {}
     })
     this.samplers = {}

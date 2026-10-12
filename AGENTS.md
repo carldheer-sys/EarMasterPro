@@ -52,6 +52,14 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   parallel reverb send. **No distortion/waveshaper** — summed voices clipped it.
 - Per-layer drone nodes go in `droneGains`/`droneLfos`/`droneSynths` —
   `stopDrone()` disposes all of them. Adding a node without tracking it = leak.
+- **The drone is a baked stereo loop** (`droneBaker.js`): ~10s AudioBuffer
+  rendered via OfflineAudioContext per octave band, played as a looping
+  `ToneBufferSource` retuned with `playbackRate` (±6 st). Sources are
+  tracked in `droneSources`, their gains in `droneGains`; `_droneEpoch`
+  guards in-flight renders against zombie attaches. The old 4-synth path
+  survives as `_scheduleDroneSynthFallback` when OfflineAudioContext is
+  unavailable. Loop buffers live in a module-level cache — they are
+  context-agnostic and must NOT be disposed on rebuild.
 - `loadInstrument` dedupes concurrent loads via `instrumentLoads`; sample
   ArrayBuffers are cached module-level (`sampleArrayBufferCache`) and re-decoded
   per context epoch.
@@ -70,8 +78,26 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   retry with `'interactive'`: its small output buffer underruns on Bluetooth.
 - **Watchdog rebuilds need 2 consecutive dead ticks** — a single stalled-clock
   window is normal on Bluetooth and must not tear down the graph (a rebuild is
-  an audible stop). `interrupted` states are neutral ticks: the statechange
-  auto-heal handles them; a rebuilt context is born interrupted too.
+  an audible stop). `interrupted` states are neutral ticks (bounded at 15):
+  the statechange auto-heal handles them; a rebuilt context is born
+  interrupted too.
+- **Section playback goes through `<audio>`, not the WebAudio output path** —
+  iOS + Bluetooth underruns the AudioContext render thread (~1s dropouts)
+  while the OS media pipeline buffers deep. `MediaSongPlayer`
+  (`mediaPlayback.js`) plays rendered WAV blobs on two A/B elements for
+  gapless region loops; `sectionBounce.js` renders the whole mix (notes +
+  baked-drone segments + verbatim mastering chain) via `Tone.Offline`.
+  'full' plays the loudness-normalized song WAV (`songBlobRef`) — under 0.5×,
+  a pre-stretched OLA file since iOS can't preserve pitch below
+  `playbackRate` 0.5. WebAudio stays only for live keyboard notes and as the
+  fallback when a render/element fails — never play both at once.
+- **Loudness is baked into the WAV samples** — `el.volume` is read-only on
+  iOS, so `encodeWavPcm16` applies the gain while interleaving (peak-safe,
+  hard-clipped). Bounce results are cached by a JSON key of every audible
+  input (`bounceKeyOf`); revoking a URL the element is playing is forbidden.
+- **`MediaSongPlayer.prime()` must run inside the user gesture** — a bounce
+  render can outlive user-activation; playing a 1-frame silent WAV once
+  unlocks both elements for the session.
 - **PianoRoll canvas is viewport-sized** and follows scroll via a transform in
   the RAF loop — never size it to `gridWidth × dpr` (exceeds iOS canvas limits
   and repaints the whole grid per scroll tick).
