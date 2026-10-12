@@ -118,7 +118,13 @@ export class MediaSongPlayer {
   load(url) {
     if (this._els[0].src === url) return
     this.stop()
-    for (const el of this._els) el.src = url
+    for (const el of this._els) {
+      el.src = url
+      // Force fetch/decode NOW — a blob URL resolves instantly and a loaded
+      // standby element honours the loop-boundary seek; a lazy one can drop
+      // the currentTime assignment and restart from its last position.
+      try { el.load() } catch (_) {}
+    }
   }
 
   /** Track an object URL this player created so dispose() can revoke it. */
@@ -137,9 +143,15 @@ export class MediaSongPlayer {
     this._loop = looping ? { startSec: loopStartSec, endSec: loopEndSec } : null
     this._bounds = { endSec: loopEndSec }
     this._onEnded = onEnded
+    await this._ensureReady(el, offsetSec)
+    // Seek AFTER ready — el.load() inside _ensureReady (and iOS discarding a
+    // paused element's buffers) resets currentTime to 0; a pre-ready seek can
+    // silently land nowhere, which is exactly the "resumes from 0" bug.
     el.currentTime = offsetSec
-    await this._ensureReady(el)
     await el.play()
+    // Verify the seek stuck — Safari can ignore a currentTime assignment that
+    // raced a late load; re-issue it once if the position is still near 0.
+    if (Math.abs(el.currentTime - offsetSec) > 0.6) el.currentTime = offsetSec
     this._startWatch()
   }
 
@@ -169,10 +181,16 @@ export class MediaSongPlayer {
     }
   }
 
-  _ensureReady(el) {
+  _ensureReady(el, offsetSec) {
     if (el.readyState >= 2) return Promise.resolve()
     return new Promise((resolve) => {
-      const done = () => { cleanup(); resolve() }
+      const done = () => {
+        cleanup()
+        // Re-apply the target after any load()/metadata cycle — a late load
+        // resets the position and a pre-ready seek may be dropped entirely.
+        try { el.currentTime = offsetSec } catch (_) {}
+        resolve()
+      }
       const cleanup = () => {
         el.removeEventListener('loadeddata', done)
         el.removeEventListener('canplay', done)
@@ -221,7 +239,12 @@ export class MediaSongPlayer {
     }
   }
 
-  pause() { this.el.pause(); this._stopWatch() }
+  pause() {
+    this._stopWatch()
+    // Pause BOTH elements — a standby pre-started inside the loop-overlap
+    // window would otherwise keep sounding through the pause.
+    for (const el of this._els) { try { el.pause() } catch (_) {} }
+  }
 
   stop() {
     this._stopWatch()

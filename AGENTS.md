@@ -105,7 +105,13 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
 - **Instrument volumes live in `INSTRUMENT_CONFIGS`/`SYNTH_TYPES` only** —
   the live engine and `buildInstrument` in sectionBounce read the same
   tables; never tune one path without the other. Drone level is
-  `volumeDb − 1dB` in both `_startDroneLoop` and the bounce.
+  `volumeDb + 3dB` in both `_startDroneLoop` and the bounce — a sine bed
+  reads far quieter than pitched voices at equal RMS.
+- **`MediaSongPlayer` seeks only after the element is ready** — setting
+  `currentTime` before readyState≥2 (or before `_ensureReady`'s `el.load()`)
+  can be silently dropped → playback restarts from 0 on pause/resume.
+  `pause()` pauses BOTH A/B elements — a pre-started standby would otherwise
+  keep sounding.
 - **`MediaSongPlayer.prime()` must run inside the user gesture** — a bounce
   render can outlive user-activation; playing a 1-frame silent WAV once
   unlocks both elements for the session.

@@ -1050,14 +1050,15 @@ class AudioEngine {
     })
   }
 
-  // Looped buffer → Tone.Gain → midiGain. Level sits ~1dB under the voice
-  // bus (volumeDb −1dB): the baked texture already carries the octave /
-  // fifth / shimmer partials the 4-layer synth stack used to add.
+  // Looped buffer → Tone.Gain → midiGain. Level sits ~3dB OVER the voice
+  // bus offset (volumeDb +3dB): the baked texture already carries the octave /
+  // fifth / shimmer partials the 4-layer synth stack used to add, and a sine
+  // bed reads far quieter than a pitched voice at equal RMS.
   _startDroneLoop(buffer, freq, band, volumeDb) {
     const src = new Tone.ToneBufferSource(buffer)
     src.loop = true
     src.playbackRate.value = freq / droneBandRef(band)
-    const g = new Tone.Gain(Math.pow(10, (volumeDb - 1) / 20)).connect(this.midiGain)
+    const g = new Tone.Gain(Math.pow(10, (volumeDb + 3) / 20)).connect(this.midiGain)
     src.connect(g)
     src.start()
     this.droneSources.push(src)
