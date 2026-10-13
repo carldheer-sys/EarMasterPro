@@ -54,12 +54,16 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   `stopDrone()` disposes all of them. Adding a node without tracking it = leak.
 - **The drone is a baked stereo loop** (`droneBaker.js`): ~10s AudioBuffer
   rendered via OfflineAudioContext per octave band, played as a looping
-  `ToneBufferSource` retuned with `playbackRate` (±6 st). Sources are
-  tracked in `droneSources`, their gains in `droneGains`; `_droneEpoch`
-  guards in-flight renders against zombie attaches. The old 4-synth path
-  survives as `_scheduleDroneSynthFallback` when OfflineAudioContext is
-  unavailable. Loop buffers live in a module-level cache — they are
-  context-agnostic and must NOT be disposed on rebuild.
+  `ToneBufferSource` retuned with `playbackRate` (±6 st), swelling in over
+  ~0.5s (gain `setTargetAtTime`, τ 0.15). Sources are tracked in
+  `droneSources`, their gains in `droneGains`; `_droneEpoch` guards
+  in-flight renders against zombie attaches. `droneVoicingSpec()` is the
+  single voicing definition shared with the bounce's inline render — never
+  fork the constants. `offlineRenderProbe()` gates `droneLoopPromise`: a
+  failed probe (or a silent/failed bake — logged, evicted for retry) sends
+  the live path to `_scheduleDroneSynthFallback` (4-synth pad, logs once).
+  Loop buffers live in a module-level cache — they are context-agnostic
+  and must NOT be disposed on rebuild.
 - `loadInstrument` dedupes concurrent loads via `instrumentLoads`; sample
   ArrayBuffers are cached module-level (`sampleArrayBufferCache`) and re-decoded
   per context epoch.
@@ -86,11 +90,18 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   while the OS media pipeline buffers deep. `MediaSongPlayer`
   (`mediaPlayback.js`) plays rendered WAV blobs on two A/B elements for
   gapless region loops; `sectionBounce.js` renders the whole mix (notes +
-  baked-drone segments + verbatim mastering chain) via `Tone.Offline`.
+  inline drone-voicing segments + verbatim mastering chain) via
+  `Tone.Offline` — the drone is built from `droneVoicingSpec` inside the
+  render, not from the shared loop cache, so a failed loop bake can't
+  strip it from the bounce.
   'full' plays the loudness-normalized song WAV (`songBlobRef`) — under 0.5×,
   a pre-stretched OLA file since iOS can't preserve pitch below
   `playbackRate` 0.5. WebAudio stays only for live keyboard notes and as the
-  fallback when a render/element fails — never play both at once.
+  fallback when a render/element fails — never play both at once. The
+  `offlineRenderProbe` gates bounces, and a rendered buffer peaking below
+  −60dBFS is evicted + treated as a failure (a silent render would
+  otherwise "play" forever). Media-path failures log `[audio] media path:
+  <reason> — WebAudio fallback`.
 - **Loudness is baked into the WAV samples** — `el.volume` is read-only on
   iOS, so `encodeWavPcm16` applies the gain while interleaving (peak-safe,
   hard-clipped). Song WAVs hit `AUDIO_TARGET_RMS_DB` (−16); rendered mixes
@@ -100,8 +111,12 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   (`bounceKeyOf`); revoking a URL the element is playing is forbidden.
 - **A media pause keeps the drone alive like a WebAudio pause** — the baked
   drone freezes with the element, so `pausePlayback` voices a live drone at
-  the paused key (`startPausedDrone`); the next media `start` stops it
-  (cleanup → `stopDrone`) because the voice is inside the bounce.
+  the paused key (`startPausedDrone`, ramped in over ~0.5s). The next media
+  `start` releases it only AFTER `player.start()` resolves (`handoffDrone`)
+  so its 0.25s tail overlaps the baked voice — never stop it in `cleanup()`
+  before the element is playing, that re-opens the resume gap.
+  `mediaSession.playbackState` is `'paused'` while paused so the
+  Now Playing/BT route stays claimed.
 - **Instrument volumes live in `INSTRUMENT_CONFIGS`/`SYNTH_TYPES` only** —
   the live engine and `buildInstrument` in sectionBounce read the same
   tables; never tune one path without the other. Drone level is

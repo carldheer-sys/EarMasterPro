@@ -566,7 +566,9 @@ function EarTrainer() {
         navigator.audioSession.type = dronePlayingRef.current ? 'playback' : 'ambient'
       }
     } catch (_) {}
-    try { if (navigator.mediaSession) navigator.mediaSession.playbackState = 'none' } catch (_) {}
+    // 'paused' (not 'none') keeps Now Playing/BT route claimed through the
+    // pause — dropping it makes the OS renegotiate the route on resume.
+    try { if (navigator.mediaSession) navigator.mediaSession.playbackState = 'paused' } catch (_) {}
     playbackStateRef.current = 'paused'
     setPlaybackState('paused')
   }, [playbackState, startPausedDrone])
@@ -771,10 +773,13 @@ function EarTrainer() {
       entry.promise = (async () => {
         const rendered = await bounceSection(params)
         if (!rendered) { bounceCacheRef.current.delete(key); return null }
+        // A render that resolves to silence would otherwise be cached and
+        // "play" forever — evict + fall back to WebAudio instead.
+        const { rmsDb, peakDb } = measureBufferLevel(rendered.buf)
+        if (!(peakDb > -60)) { bounceCacheRef.current.delete(key); return null }
         // Loudness-normalize the mix like the song audio — pure baked gain
         // (the limiter leaves little peak headroom on loud renders, which is
         // correct: they're already near full scale).
-        const { rmsDb, peakDb } = measureBufferLevel(rendered.buf)
         const gainDb = Math.min(BOUNCE_TARGET_RMS_DB - rmsDb, BOUNCE_MAX_BOOST_DB, AUDIO_PEAK_CEIL_DB - peakDb)
         const blob = encodeWavPcm16(rendered.buf, Math.pow(10, gainDb / 20))
         const url = newMediaUrl(blob)
@@ -803,7 +808,11 @@ function EarTrainer() {
     src, us, s, notes, chordsNotes, keyEvents, startBeat, endBeat,
     resumeBeat, regionBeats, resumeFromPause, internalTempo, effectiveTempo,
   }) => {
-    if (typeof Audio === 'undefined') return false
+    const mediaFail = (reason, err, level = 'warn') => {
+      console[level]('[audio] media path: ' + reason + ' — WebAudio fallback', err ?? '')
+      return false
+    }
+    if (typeof Audio === 'undefined') return mediaFail('Audio unsupported')
     const tokenAtStart = playbackTokenRef.current
     const player = mediaPlayerRef.current ??= new MediaSongPlayer()
     // Unlock both elements inside the live gesture — a bounce render can take
@@ -812,11 +821,9 @@ function EarTrainer() {
     const looping = isLoopingRef.current
     const resumeRegionBeat = resumeBeat - startBeat
     const cleanup = () => {
-      // A media pause may have voiced a live drone — the bounce has it baked
-      // in, so silence the live voice first (short release ramp, no click).
-      try { audioEngine.stopDrone() } catch (_) {}
-      dronePlayingRef.current = false
-      droneKeyRef.current = null
+      // A live paused-drone deliberately survives cleanup — handoffDrone()
+      // releases it only once media is actually playing, so its 0.25s tail
+      // overlaps the baked drone instead of leaving a gap in the resume.
       if (!resumeFromPause) stopPlayback({ keepPreparing: true, keepRecovery: playbackRecoveryAttemptRef.current })
       else {
         clearTimerList(noteTimersRef)
@@ -825,10 +832,20 @@ function EarTrainer() {
         player.stop()
       }
     }
+    // Fresh-play cleanup already cleared the drone via stopPlayback — this
+    // only fires for the resume path's still-sounding paused drone. If the
+    // media start fails, the drone is left sounding and the WebAudio
+    // fallback's keepCurrentKey logic keeps it — seamless either way.
+    const handoffDrone = () => {
+      if (!dronePlayingRef.current) return
+      dronePlayingRef.current = false
+      droneKeyRef.current = null
+      try { audioEngine.stopDrone() } catch (_) {}
+    }
 
     if (src === 'full') {
       const song = songBlobRef.current
-      if (!song?.urls.has(1)) return false
+      if (!song?.urls.has(1)) return mediaFail('song blob not ready', null, 'debug')
       const speed = speedRef.current
       let url = song.urls.get(1)
       let rate = speed
@@ -837,7 +854,7 @@ function EarTrainer() {
         url = song.urls.get(speed)
         if (!url) {
           const blob = encodeWavPcm16(stretchBufferOla(song.buffer, speed), song.gainLin)
-          if (!blob) return false
+          if (!blob) return mediaFail('stretch WAV encode failed')
           url = newMediaUrl(blob)
           song.urls.set(speed, url)
         }
@@ -861,11 +878,12 @@ function EarTrainer() {
           playbackRate: rate,
           onEnded: () => stopPlayback({ keepSeek: true }),
         })
-      } catch (_) { return false }
-      if (playbackTokenRef.current !== playToken) { player.stop(); return false }
+      } catch (err) { return mediaFail('element start failed', err) }
+      if (playbackTokenRef.current !== playToken) { player.stop(); return mediaFail('superseded', null, 'debug') }
       mediaBeatMapRef.current = pos => Math.min((pos / fileScale) * bps, endBeat)
       startMediaWatch(playbackTokenRef.current)
       updateMediaSession()
+      handoffDrone()
       return true
     }
 
@@ -887,7 +905,9 @@ function EarTrainer() {
       startBeat,
     })
     const rendered = await entry.promise
-    if (!rendered || entry.revoked || playbackTokenRef.current !== tokenAtStart) return false
+    if (playbackTokenRef.current !== tokenAtStart) return mediaFail('superseded', null, 'debug')
+    if (!rendered) return mediaFail('bounce render failed')
+    if (entry.revoked) return mediaFail('bounce evicted', null, 'debug')
     cleanup()
     const playToken = playbackTokenRef.current
     const spb = 60 / effectiveTempo
@@ -902,11 +922,12 @@ function EarTrainer() {
         playbackRate: 1,
         onEnded: () => stopPlayback({ keepSeek: true }),
       })
-    } catch (_) { return false }
-    if (playbackTokenRef.current !== playToken) { player.stop(); return false }
+    } catch (err) { return mediaFail('element start failed', err) }
+    if (playbackTokenRef.current !== playToken) { player.stop(); return mediaFail('superseded', null, 'debug') }
     mediaBeatMapRef.current = pos => Math.min(startBeat + pos / spb, endBeat)
     startMediaWatch(playbackTokenRef.current)
     updateMediaSession()
+    handoffDrone()
     return true
   }, [startMediaWatch, stopPlayback, updateMediaSession, getOrStartBounce, newMediaUrl])
 

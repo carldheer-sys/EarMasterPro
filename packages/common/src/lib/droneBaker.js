@@ -23,57 +23,134 @@ export function droneBandRef(band) {
   return DRONE_BAND_BASE * Math.pow(2, band)
 }
 
-// band → Promise<AudioBuffer>, deduped and LRU-capped at module scope.
+// The one voicing definition — consumed by renderDroneLoop (loop bake for
+// the live path) and by sectionBounce's inline segment render (media path).
+// Two renderers, one spec: if they drifted, the live↔media drone handoff
+// would jump in timbre.
+export function droneVoicingSpec() {
+  return {
+    // Two decorrelated sides (different detune, panned ±0.55) — real stereo
+    // width a mono source + panner can't produce.
+    sides: [{ pan: -0.55, det: -4 }, { pan: 0.55, det: 4 }],
+    partials: [
+      { ratio: 1.0,   amp: 0.15  },  // fundamental
+      { ratio: 1.002, amp: 0.09  },  // close pair → slow beat
+      { ratio: 2.0,   amp: 0.09  },  // octave
+      { ratio: 3.005, amp: 0.05  },  // octave + fifth
+      { ratio: 4.0,   amp: 0.025 },  // high-octave shimmer
+    ],
+    // Decorrelated filtered-noise "air" bed, unique per side.
+    noise: { gain: 0.012, filterRatio: 5, q: 0.4, panScale: 0.8, maxSec: 2 },
+    // Slow LP sweep gives the pad gentle brightness movement.
+    lp: { q: 0.5, startRatio: 7, endRatio: 10 },
+  }
+}
+
+// OfflineAudioContext can construct fine yet render silence or throw on
+// some platforms — every rendered path (drone loops, section bounces)
+// silently degrades when that happens (legacy drone takes over, media
+// bounce falls back to WebAudio). Probe once with a tiny render so the
+// failure is detected and logged instead of discovered per-call.
+let _offlineProbe = null
+export function offlineRenderProbe() {
+  if (!_offlineProbe) {
+    _offlineProbe = (async () => {
+      try {
+        const OfflineCtx = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext
+        if (!OfflineCtx || !OfflineCtx.prototype?.createStereoPanner) return false
+        const off = new OfflineCtx(1, 128, 44100)
+        const o = off.createOscillator()
+        o.frequency.value = 440
+        o.connect(off.destination)
+        o.start(0)
+        const d = (await off.startRendering()).getChannelData(0)
+        for (let i = 0; i < d.length; i++) if (d[i] !== 0) return true
+        return false
+      } catch (_) {
+        return false
+      }
+    })()
+    _offlineProbe.then((ok) => {
+      if (!ok) console.warn('[audio] offline render probe failed — baked drone + media bounce will fall back')
+    })
+  }
+  return _offlineProbe
+}
+
+// band → Promise<AudioBuffer|null>, deduped and LRU-capped at module scope.
 const droneLoopCache = new Map()
+let _warnedBake = false
 
 export function droneLoopPromise(band, sampleRate = 44100) {
-  let p = droneLoopCache.get(band)
-  if (!p) {
-    p = renderDroneLoop(droneBandRef(band), sampleRate).catch(() => null)
+  return offlineRenderProbe().then((ok) => {
+    if (!ok) return null
+    let p = droneLoopCache.get(band)
+    if (!p) {
+      p = renderDroneLoop(droneBandRef(band), sampleRate)
+        .then((buf) => {
+          // A render that resolves to silence is as useless as a throw —
+          // evict so a later call can retry.
+          if (!buf || bufferPeak(buf) < 1e-4) {
+            droneLoopCache.delete(band)
+            return null
+          }
+          return buf
+        })
+        .catch((err) => {
+          droneLoopCache.delete(band)
+          if (!_warnedBake) {
+            _warnedBake = true
+            console.warn('[audio] drone loop render failed — using legacy drone', err)
+          }
+          return null
+        })
+      droneLoopCache.set(band, p)
+    }
+    // LRU touch + cap
+    droneLoopCache.delete(band)
     droneLoopCache.set(band, p)
+    while (droneLoopCache.size > DRONE_CACHE_MAX) {
+      droneLoopCache.delete(droneLoopCache.keys().next().value)
+    }
+    return p
+  })
+}
+
+// Sparse scan is plenty for a silence check on a dense pad texture.
+function bufferPeak(buf) {
+  let peak = 0
+  for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+    const d = buf.getChannelData(ch)
+    for (let i = 0; i < d.length; i += 64) {
+      const a = Math.abs(d[i])
+      if (a > peak) peak = a
+    }
   }
-  // LRU touch + cap
-  droneLoopCache.delete(band)
-  droneLoopCache.set(band, p)
-  while (droneLoopCache.size > DRONE_CACHE_MAX) {
-    droneLoopCache.delete(droneLoopCache.keys().next().value)
-  }
-  return p
+  return peak
 }
 
 async function renderDroneLoop(refFreq, sampleRate) {
-  const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext
+  const OfflineCtx = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext
   if (!OfflineCtx || !OfflineCtx.prototype?.createStereoPanner) return null
 
+  const spec = droneVoicingSpec()
   const bodyLen = Math.round(DRONE_LOOP_SECONDS * sampleRate)
   const tailLen = Math.round(DRONE_CROSSFADE_SECONDS * sampleRate)
   const off = new OfflineCtx(2, bodyLen + tailLen, sampleRate)
   const dur = (bodyLen + tailLen) / sampleRate
 
-  // Slow LP sweep gives the pad gentle brightness movement across the loop.
   const lp = off.createBiquadFilter()
   lp.type = 'lowpass'
-  lp.Q.value = 0.5
-  lp.frequency.setValueAtTime(refFreq * 7, 0)
-  lp.frequency.linearRampToValueAtTime(refFreq * 10, dur)
+  lp.Q.value = spec.lp.q
+  lp.frequency.setValueAtTime(refFreq * spec.lp.startRatio, 0)
+  lp.frequency.linearRampToValueAtTime(refFreq * spec.lp.endRatio, dur)
   lp.connect(off.destination)
 
-  // Two decorrelated sides (different detune, panned ±0.55) — real stereo
-  // width a mono source + panner can't produce. Matches the old 4-layer
-  // drone voicing: fundamental / octave / fifth / high octave.
-  const SIDES = [{ pan: -0.55, det: -4 }, { pan: 0.55, det: 4 }]
-  const PARTIALS = [
-    { ratio: 1.0,   amp: 0.15 },  // fundamental
-    { ratio: 1.002, amp: 0.09 },  // close pair → slow beat
-    { ratio: 2.0,   amp: 0.09 },  // octave
-    { ratio: 3.005, amp: 0.05 },  // octave + fifth
-    { ratio: 4.0,   amp: 0.025 }, // high-octave shimmer
-  ]
-  for (const side of SIDES) {
+  for (const side of spec.sides) {
     const pan = off.createStereoPanner()
     pan.pan.value = side.pan
     pan.connect(lp)
-    for (const p of PARTIALS) {
+    for (const p of spec.partials) {
       const o = off.createOscillator()
       o.type = 'sine'
       o.frequency.value = refFreq * p.ratio
@@ -84,8 +161,7 @@ async function renderDroneLoop(refFreq, sampleRate) {
       g.connect(pan)
       o.start(0)
     }
-    // Decorrelated filtered-noise "air" bed, unique per side.
-    const nLen = Math.min(2 * sampleRate, bodyLen)
+    const nLen = Math.min(spec.noise.maxSec * sampleRate, bodyLen)
     const nb = off.createBuffer(1, nLen, sampleRate)
     const nd = nb.getChannelData(0)
     for (let i = 0; i < nLen; i++) nd[i] = Math.random() * 2 - 1
@@ -94,12 +170,12 @@ async function renderDroneLoop(refFreq, sampleRate) {
     ns.loop = true
     const nf = off.createBiquadFilter()
     nf.type = 'lowpass'
-    nf.frequency.value = refFreq * 5
-    nf.Q.value = 0.4
+    nf.frequency.value = refFreq * spec.noise.filterRatio
+    nf.Q.value = spec.noise.q
     const ng = off.createGain()
-    ng.gain.value = 0.012
+    ng.gain.value = spec.noise.gain
     const np = off.createStereoPanner()
-    np.pan.value = side.pan * 0.8
+    np.pan.value = side.pan * spec.noise.panScale
     ns.connect(nf)
     nf.connect(ng)
     ng.connect(np)

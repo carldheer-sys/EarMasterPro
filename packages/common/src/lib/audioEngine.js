@@ -1053,21 +1053,32 @@ class AudioEngine {
   // Looped buffer → Tone.Gain → midiGain. Level sits ~3dB OVER the voice
   // bus offset (volumeDb +3dB): the baked texture already carries the octave /
   // fifth / shimmer partials the 4-layer synth stack used to add, and a sine
-  // bed reads far quieter than a pitched voice at equal RMS.
+  // bed reads far quieter than a pitched voice at equal RMS. The gain swells
+  // in (τ≈0.15s → ~0.45s to settle) instead of bumping on at full level —
+  // the paused-drone handoff and mid-song key changes stay seamless.
   _startDroneLoop(buffer, freq, band, volumeDb) {
     const src = new Tone.ToneBufferSource(buffer)
     src.loop = true
     src.playbackRate.value = freq / droneBandRef(band)
-    const g = new Tone.Gain(Math.pow(10, (volumeDb + 3) / 20)).connect(this.midiGain)
+    const g = new Tone.Gain(0).connect(this.midiGain)
+    g.gain.setTargetAtTime(Math.pow(10, (volumeDb + 3) / 20), Tone.now(), 0.15)
     src.connect(g)
     src.start()
     this.droneSources.push(src)
     this.droneGains.push(g)
+    if (!this._loggedBakedDrone) {
+      this._loggedBakedDrone = true
+      console.info('[audio] drone: baked loop')
+    }
   }
 
   // Legacy 4-layer pad — kept as the fallback when OfflineAudioContext is
   // unavailable or the bake fails.
   _scheduleDroneSynthFallback(tonic, regionBeats, volumeDb = 0) {
+    if (!this._warnedDroneFallback) {
+      this._warnedDroneFallback = true
+      console.warn('[audio] drone: baked loop unavailable — legacy synth fallback')
+    }
     const fundamental = tonicToMidi(tonic, 2)           // e.g. A2 = 45
     const octave      = fundamental + 12                 // A3
     const fifth       = fundamental + 19                 // E3 (perfect 5th above A2)

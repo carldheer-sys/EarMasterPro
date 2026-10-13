@@ -4,15 +4,15 @@
 // Bluetooth, where the live AudioContext output path underruns on iOS.
 //
 // The graph mirrors audioEngine's live chain verbatim (midiGain → compressor
-// → limiter → destination, −14dB reverb send, per-synth chorus, drone loop
-// buffers) so the bounce sounds identical to live playback — with one upgrade
-// borrowed from Sonofield's SF2 envelopes: drone segments crossfade (~1s
-// attack, 2s release tail) instead of hard-switching at key changes.
+// → limiter → destination, −14dB reverb send, per-synth chorus, same drone
+// voicing spec) so the bounce sounds identical to live playback — with one
+// upgrade borrowed from Sonofield's SF2 envelopes: drone segments crossfade
+// (~1s attack, 2s release tail) instead of hard-switching at key changes.
 
 import * as Tone from 'tone'
 import SampleLibrary from './Tonejs-Instruments'
 import { audioEngine, SYNTH_TYPES, INSTRUMENT_CONFIGS, tonicToMidi } from './audioEngine'
-import { droneBandIndex, droneBandRef, droneLoopPromise } from './droneBaker'
+import { droneVoicingSpec, offlineRenderProbe } from './droneBaker'
 
 const TAIL_SEC = 1.5          // rendered release tail after the region end
 const DRONE_ATTACK_S = 1.0    // per-segment fade-in (Sonofield ~1s envelope)
@@ -54,6 +54,42 @@ function foldTail(buf, tailSamples) {
     length: bodyLen,
     sampleRate: buf.sampleRate,
     getChannelData: (i) => channels[i],
+  }
+}
+
+// Same voicing as droneBaker's baked loop (shared droneVoicingSpec), built
+// directly on the bounce's offline context: the rendered drone then can't
+// be lost to a failed shared-loop bake, and it lands on the exact pitch —
+// the live retune path quantizes to ±6st bands, this doesn't.
+function scheduleDroneVoices(freq, t0, stopAt, dest) {
+  const spec = droneVoicingSpec()
+  const lp = new Tone.Filter(freq * spec.lp.startRatio, 'lowpass')
+  lp.Q.value = spec.lp.q
+  lp.frequency.setValueAtTime(freq * spec.lp.startRatio, t0)
+  lp.frequency.linearRampToValueAtTime(freq * spec.lp.endRatio, stopAt)
+  lp.connect(dest)
+  for (const side of spec.sides) {
+    const pan = new Tone.Panner(side.pan).connect(lp)
+    for (const p of spec.partials) {
+      const o = new Tone.Oscillator(freq * p.ratio, 'sine')
+      o.detune.value = side.det
+      const g = new Tone.Gain(p.amp)
+      o.connect(g)
+      g.connect(pan)
+      o.start(t0)
+      o.stop(stopAt)
+    }
+    const noise = new Tone.Noise()
+    const nf = new Tone.Filter(freq * spec.noise.filterRatio, 'lowpass')
+    nf.Q.value = spec.noise.q
+    const ng = new Tone.Gain(spec.noise.gain)
+    const np = new Tone.Panner(side.pan * spec.noise.panScale)
+    noise.connect(nf)
+    nf.connect(ng)
+    ng.connect(np)
+    np.connect(lp)
+    noise.start(t0)
+    noise.stop(stopAt)
   }
 }
 
@@ -116,21 +152,21 @@ export async function bounceSection({
   if (regionBeats <= 0) return null
   const OfflineCtor = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext
   if (!OfflineCtor) return null
+  // OfflineAudioContext can construct yet render silence on some platforms —
+  // the probe detects that once; no point spending seconds on a dead render.
+  if (!(await offlineRenderProbe())) return null
   const spb = 60 / tempo
   const regionSec = regionBeats * spb
   const renderSec = regionSec + TAIL_SEC
   const sr = Tone.getContext()?.rawContext?.sampleRate || 44100
 
-  // Drone loop buffers render in their own OfflineAudioContext — fetch them
-  // (module-cached) before the main render begins.
-  const segs = droneDb != null ? droneSegments(keyEvents, startBeat, regionBeats) : []
-  const droneLoops = []
-  for (const seg of segs) {
-    const midi = tonicToMidi(seg.key, 2)
-    const freq = 440 * Math.pow(2, (midi - 69) / 12)
-    const band = droneBandIndex(freq)
-    droneLoops.push({ seg, freq, band, buffer: await droneLoopPromise(band, sr) })
-  }
+  // Drone segments voice inline inside the render below — only the segment
+  // timing/pitch is needed up front (mirrors scheduleDroneSegments' math).
+  const segs = (droneDb != null ? droneSegments(keyEvents, startBeat, regionBeats) : [])
+    .map((seg) => {
+      const midi = tonicToMidi(seg.key, 2)
+      return { seg, freq: 440 * Math.pow(2, (midi - 69) / 12) }
+    })
 
   const instrumentNames = [...new Set(notes.map(n => n.instrument).filter(Boolean))]
 
@@ -170,19 +206,16 @@ export async function bounceSection({
       try { player.triggerAttackRelease(n.note, durSec, t, velocity) } catch (_) {}
     }
 
-    // Drone segments — baked loops (same voicing as _startDroneLoop) with a
-    // Sonofield-style envelope: ~1s attack per segment, 2s release tail that
-    // overlaps the next key change into a true crossfade.
+    // Drone segments — the droneBaker voicing built inline on this offline
+    // context (so a failed shared-loop bake can't strip the drone from the
+    // render), with a Sonofield-style envelope: ~1s attack per segment, 2s
+    // release tail that overlaps the next key change into a true crossfade.
     // Same level as the live _startDroneLoop: volumeDb +3dB — a sine drone
     // bed reads far quieter than pitched voices at equal RMS.
     const droneLevel = Math.pow(10, (droneDb + 3) / 20)
-    for (const { seg, freq, band, buffer } of droneLoops) {
-      if (!buffer) continue
+    for (const { seg, freq } of segs) {
       const t0 = seg.start * spb
       const tEnd = Math.min(seg.end, regionBeats) * spb
-      const src = new Tone.ToneBufferSource(buffer)
-      src.loop = true
-      src.playbackRate.value = freq / droneBandRef(band)
       const g = new Tone.Gain(0).connect(midiGain)
       const attackEnd = Math.min(t0 + DRONE_ATTACK_S, tEnd)
       g.gain.setValueAtTime(0, t0)
@@ -191,9 +224,7 @@ export async function bounceSection({
       const stopAt = tEnd + DRONE_RELEASE_S
       g.gain.setValueAtTime(droneLevel, releaseStart)
       g.gain.linearRampToValueAtTime(0, stopAt)
-      src.connect(g)
-      src.start(t0)
-      src.stop(stopAt + 0.05)
+      scheduleDroneVoices(freq, t0, stopAt + 0.05, g)
     }
   }, renderSec, 2, sr)
 
