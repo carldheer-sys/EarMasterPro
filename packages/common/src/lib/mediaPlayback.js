@@ -53,6 +53,60 @@ export function encodeWavPcm16(buffer, gainLinear = 1) {
   return new Blob([ab], { type: 'audio/wav' })
 }
 
+// WAV requires little-endian; every real platform (x86, ARM) is LE — checked
+// once so the fast Int16Array path is used only where it's identical to a
+// per-sample DataView write.
+const _isLE = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1
+
+/**
+ * Chunked, yield-to-event-loop variant of encodeWavPcm16 for large buffers.
+ * The sync version runs ~1M DataView.setInt16 calls per second of stereo
+ * audio — a multi-minute song froze the main thread for seconds on mobile
+ * (UI stutter, "app feels dead"). Writes through an Int16Array view (~10x
+ * faster than DataView) and yields to the event loop every `chunkFrames`.
+ */
+export async function encodeWavPcm16Async(buffer, gainLinear = 1, { chunkFrames = 1 << 19 } = {}) {
+  if (!buffer || buffer.length === 0) return null
+  const nCh = Math.min(2, buffer.numberOfChannels || 1)
+  const n = buffer.length
+  const sr = buffer.sampleRate | 0
+  const dataSize = n * nCh * 2
+  const ab = new ArrayBuffer(44 + dataSize)
+  const v = new DataView(ab)
+  const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)) }
+  writeStr(0, 'RIFF')
+  v.setUint32(4, 36 + dataSize, true)
+  writeStr(8, 'WAVE')
+  writeStr(12, 'fmt ')
+  v.setUint32(16, 16, true)
+  v.setUint16(20, 1, true)
+  v.setUint16(22, nCh, true)
+  v.setUint32(24, sr, true)
+  v.setUint32(28, sr * nCh * 2, true)
+  v.setUint16(32, nCh * 2, true)
+  v.setUint16(34, 16, true)
+  writeStr(36, 'data')
+  v.setUint32(40, dataSize, true)
+  const chans = []
+  for (let c = 0; c < nCh; c++) chans.push(buffer.getChannelData(Math.min(c, buffer.numberOfChannels - 1)))
+  const fast = _isLE ? new Int16Array(ab, 44) : null
+  for (let i = 0; i < n; i += chunkFrames) {
+    const end = Math.min(n, i + chunkFrames)
+    for (let f = i; f < end; f++) {
+      let off = f * nCh
+      for (let c = 0; c < nCh; c++) {
+        const s = Math.max(-1, Math.min(1, chans[c][f] * gainLinear))
+        const q = s < 0 ? s * 0x8000 : s * 0x7fff
+        if (fast) fast[off] = q
+        else v.setInt16(44 + off * 2, q, true)
+        off++
+      }
+    }
+    if (end < n) await new Promise(r => setTimeout(r, 0))
+  }
+  return new Blob([ab], { type: 'audio/wav' })
+}
+
 /**
  * Offline pitch-preserving time-stretch via overlap-add — the same algorithm
  * as public/granular-processor.js (grain 4096 / hopOut 2048 / Hann COLA),
@@ -76,6 +130,38 @@ export function stretchBufferOla(buffer, speed, { grainSize = 4096, hopOut = 204
       for (let i = 0; i < grainSize; i++) out[wp + i] += src[rp + i] * hann[i]
     }
     channels.push(out)
+  }
+  return {
+    numberOfChannels: nCh,
+    length: outLen,
+    sampleRate: sr,
+    getChannelData: (i) => channels[i],
+  }
+}
+
+/**
+ * Chunked variant — the sync version runs ~120M mul-adds on a multi-minute
+ * song, all inside the play() gesture. Yields to the event loop every
+ * `chunkGrains` grains so the UI stays alive on mobile.
+ */
+export async function stretchBufferOlaAsync(buffer, speed, { grainSize = 4096, hopOut = 2048, chunkGrains = 64 } = {}) {
+  const nCh = Math.min(2, buffer.numberOfChannels || 1)
+  const total = buffer.length
+  const sr = buffer.sampleRate
+  const hopIn = Math.max(1, Math.round(hopOut * speed))
+  const hann = new Float32Array(grainSize)
+  for (let i = 0; i < grainSize; i++) hann[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (grainSize - 1)))
+  const outLen = Math.ceil(total / speed) + grainSize
+  const channels = []
+  for (let c = 0; c < nCh; c++) channels.push(new Float32Array(outLen))
+  let grains = 0
+  for (let rp = 0, wp = 0; rp + grainSize < total && wp + grainSize < outLen; rp += hopIn, wp += hopOut) {
+    for (let c = 0; c < nCh; c++) {
+      const src = buffer.getChannelData(Math.min(c, buffer.numberOfChannels - 1))
+      const out = channels[c]
+      for (let i = 0; i < grainSize; i++) out[wp + i] += src[rp + i] * hann[i]
+    }
+    if (++grains % chunkGrains === 0) await new Promise(r => setTimeout(r, 0))
   }
   return {
     numberOfChannels: nCh,
@@ -114,6 +200,15 @@ export class MediaSongPlayer {
   get playing() { return !this.el.paused }
   get positionSec() { return this.el.currentTime }
 
+  /**
+   * Element-level volume — used for loudness normalization where settable
+   * (Android/desktop); on iOS the setter is ignored (gain must be baked into
+   * the WAV instead — the caller decides which path it took).
+   */
+  setVolume(v) {
+    for (const el of this._els) { try { el.volume = v } catch (_) {} }
+  }
+
   /** Point both elements at a blob URL. */
   load(url) {
     if (this._els[0].src === url) return
@@ -148,7 +243,17 @@ export class MediaSongPlayer {
     // paused element's buffers) resets currentTime to 0; a pre-ready seek can
     // silently land nowhere, which is exactly the "resumes from 0" bug.
     el.currentTime = offsetSec
-    await el.play()
+    // play() can hang on mobile — bound it, and on timeout pause BOTH
+    // elements so a late-resolving promise can't start playback behind the
+    // WebAudio fallback the caller is about to run.
+    const played = await Promise.race([
+      el.play().then(() => true, () => false),
+      new Promise(r => setTimeout(() => r(false), 4000)),
+    ])
+    if (!played) {
+      this.stop()
+      throw new Error('media play() failed or timed out')
+    }
     // Verify the seek stuck — Safari can ignore a currentTime assignment that
     // raced a late load; re-issue it once if the position is still near 0.
     if (Math.abs(el.currentTime - offsetSec) > 0.6) el.currentTime = offsetSec
@@ -174,7 +279,8 @@ export class MediaSongPlayer {
         const prevSrc = el.src
         el.src = url
         el.currentTime = 0
-        await el.play()
+        // play() can stall on mobile — never let the gesture await it forever.
+        await Promise.race([el.play(), new Promise((_, rej) => setTimeout(() => rej(new Error('prime timeout')), 2500))])
         el.pause()
         if (prevSrc) el.src = prevSrc
       } catch (_) {}
@@ -262,7 +368,14 @@ export class MediaSongPlayer {
     this._loop = looping ? { startSec: loopStartSec, endSec: loopEndSec } : null
     this._bounds = { endSec: loopEndSec }
     this._onEnded = onEnded
-    await el.play()
+    const played = await Promise.race([
+      el.play().then(() => true, () => false),
+      new Promise(r => setTimeout(() => r(false), 4000)),
+    ])
+    if (!played) {
+      this.stop()
+      throw new Error('media play() failed or timed out')
+    }
     this._startWatch()
   }
 

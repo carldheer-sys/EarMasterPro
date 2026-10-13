@@ -90,10 +90,16 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   while the OS media pipeline buffers deep. `MediaSongPlayer`
   (`mediaPlayback.js`) plays rendered WAV blobs on two A/B elements for
   gapless region loops; `sectionBounce.js` renders the whole mix (notes +
-  inline drone-voicing segments + verbatim mastering chain) via
-  `Tone.Offline` — the drone is built from `droneVoicingSpec` inside the
-  render, not from the shared loop cache, so a failed loop bake can't
-  strip it from the bounce.
+  inline drone-voicing segments + verbatim mastering chain) on an explicit
+  `new Tone.OfflineContext(...)` — every node gets `{ context: ctx }`
+  (`PolySynth` propagates it to voices; `toDestination()` binds via the
+  node's own context) and the ctx is `dispose()`d after render. **Never
+  `Tone.Offline(callback)`**: it swaps the global `Tone.context` for the
+  callback's whole duration including `await`s — nodes built meanwhile
+  (instruments, paused-drone) bind to the dead offline context and render
+  into a buffer nobody hears. The drone is built from `droneVoicingSpec`
+  inside the render, not from the shared loop cache, so a failed loop bake
+  can't strip it from the bounce.
   'full' plays the loudness-normalized song WAV (`songBlobRef`) — under 0.5×,
   a pre-stretched OLA file since iOS can't preserve pitch below
   `playbackRate` 0.5. WebAudio stays only for live keyboard notes and as the
@@ -101,14 +107,30 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   `offlineRenderProbe` gates bounces, and a rendered buffer peaking below
   −60dBFS is evicted + treated as a failure (a silent render would
   otherwise "play" forever). Media-path failures log `[audio] media path:
-  <reason> — WebAudio fallback`.
+  <reason> — WebAudio fallback`. `bounceSection` and `prime()` get start
+  timeouts so a stalled `startRendering`/`play()` fails over instead of
+  hanging Play; `prefetchBounce` is debounced (~600ms, skipped while
+  playing) so settings drags don't spawn a render per tick.
 - **Loudness is baked into the WAV samples** — `el.volume` is read-only on
   iOS, so `encodeWavPcm16` applies the gain while interleaving (peak-safe,
-  hard-clipped). Song WAVs hit `AUDIO_TARGET_RMS_DB` (−16); rendered mixes
-  hit `BOUNCE_TARGET_RMS_DB` (−17), clamped by `AUDIO_PEAK_CEIL_DB` — the
+  hard-clipped). Where `el.volume` IS writable (`mediaVolumeWritable`
+  probe), 'full' instead plays the source MP3 bytes + per-file
+  `MediaSongPlayer.setVolume` — skipping the multi-MB WAV bake. Song WAVs
+  hit `AUDIO_TARGET_RMS_DB` (−16); rendered mixes hit
+  `BOUNCE_TARGET_RMS_DB` (−17), clamped by `AUDIO_PEAK_CEIL_DB` — the
   limiter leaves little headroom on loud renders, which is correct.
   Bounce results are cached by a JSON key of every audible input
   (`bounceKeyOf`); revoking a URL the element is playing is forbidden.
+- **Encoders/stretchers must yield on song-length buffers** —
+  `encodeWavPcm16`/`stretchBufferOla` are synchronous loops and freeze the
+  main thread for seconds on multi-minute audio; use
+  `encodeWavPcm16Async`/`stretchBufferOlaAsync` (chunked `await`s) for
+  song/section-length work. The sync versions are for ≤ a few seconds
+  (prime buffers, tests).
+- **Media cursor runs on RAF, not the stall-watch interval** —
+  `startMediaWatch` keeps stall detection at 100ms but a RAF loop
+  interpolates `player.positionSec` between samples (capped +150ms ahead)
+  so the playhead doesn't jump at 10fps; both are cancelled on stop/pause.
 - **A media pause keeps the drone alive like a WebAudio pause** — the baked
   drone freezes with the element, so `pausePlayback` voices a live drone at
   the paused key (`startPausedDrone`, ramped in over ~0.5s). The next media

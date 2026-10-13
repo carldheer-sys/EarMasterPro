@@ -13,7 +13,7 @@ import { describe, it, expect, vi } from 'vitest'
 // when OfflineAudioContext is absent) — an empty namespace is enough.
 vi.mock('tone', () => ({}))
 
-import { encodeWavPcm16, stretchBufferOla, MediaSongPlayer } from '../packages/common/src/lib/mediaPlayback.js'
+import { encodeWavPcm16, encodeWavPcm16Async, stretchBufferOla, stretchBufferOlaAsync, MediaSongPlayer } from '../packages/common/src/lib/mediaPlayback.js'
 import { bounceSection } from '../packages/common/src/lib/sectionBounce.js'
 
 // Duck-typed stereo buffer — the shape encodeWavPcm16/stretchBufferOla consume.
@@ -76,6 +76,20 @@ describe('encodeWavPcm16', () => {
   })
 })
 
+describe('encodeWavPcm16Async (chunked — must not freeze the UI on mobile)', () => {
+  it('produces byte-identical output to the sync encoder', async () => {
+    const data = Float32Array.from({ length: 44100 }, (_, i) => Math.sin(i / 33) * 0.7)
+    const buf = fakeBuffer([data, Float32Array.from(data, v => v * 0.5)])
+    const syncAb = await encodeWavPcm16(buf, 1.5).arrayBuffer()
+    const asyncAb = await (await encodeWavPcm16Async(buf, 1.5, { chunkFrames: 4096 })).arrayBuffer()
+    expect(new Uint8Array(asyncAb)).toEqual(new Uint8Array(syncAb))
+  })
+
+  it('returns null for empty input', async () => {
+    expect(await encodeWavPcm16Async(fakeBuffer([new Float32Array(0)]), 1)).toBeNull()
+  })
+})
+
 describe('stretchBufferOla', () => {
   const src = fakeBuffer([
     Float32Array.from({ length: 44100 }, (_, i) => Math.sin(i / 20)),
@@ -96,6 +110,23 @@ describe('stretchBufferOla', () => {
     const ch = out.getChannelData(0)
     for (let i = 0; i < ch.length; i += 97) peak = Math.max(peak, Math.abs(ch[i]))
     expect(peak).toBeGreaterThan(0.5)
+  })
+})
+
+describe('stretchBufferOlaAsync (chunked — must not freeze the UI on mobile)', () => {
+  it('produces identical output to the sync stretcher', async () => {
+    const src = fakeBuffer([
+      Float32Array.from({ length: 44100 }, (_, i) => Math.sin(i / 20)),
+      Float32Array.from({ length: 44100 }, (_, i) => Math.cos(i / 30)),
+    ])
+    const a = stretchBufferOla(src, 0.5)
+    const b = await stretchBufferOlaAsync(src, 0.5, { chunkGrains: 8 })
+    expect(b.length).toBe(a.length)
+    expect(b.sampleRate).toBe(a.sampleRate)
+    for (let c = 0; c < 2; c++) {
+      const ca = a.getChannelData(c), cb = b.getChannelData(c)
+      for (let i = 0; i < ca.length; i += 997) expect(cb[i]).toBeCloseTo(ca[i], 6)
+    }
   })
 })
 

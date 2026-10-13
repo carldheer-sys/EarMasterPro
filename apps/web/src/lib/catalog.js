@@ -89,13 +89,16 @@ export function measureBufferLevel(buffer) {
   return { rmsDb: toDb(Math.sqrt(sumSq / Math.max(1, n))), peakDb: toDb(peak) }
 }
 
-/** Fetch + decode a section's audio (mp3) into an AudioBuffer + loudness. */
+/** Fetch + decode a section's audio (mp3) into an AudioBuffer + loudness.
+ *  `bytes` is the compressed MP3 — lets the media path hand the element the
+ *  original file (zero WAV encode) where el.volume can carry the gain. */
 export async function loadSectionAudio(entry, audioContext, { signal } = {}) {
   const url = entry.assets.audio
   const hit = decodedAudioCache.get(url)
   if (hit && hit.ctx === audioContext) {
     cacheSet(decodedAudioCache, url, hit)
-    return { buffer: hit.buffer, rmsDb: hit.rmsDb, peakDb: hit.peakDb }
+    const bytes = compressedAudioCache.get(url) || null
+    return { buffer: hit.buffer, rmsDb: hit.rmsDb, peakDb: hit.peakDb, bytes }
   }
 
   let bytes = compressedAudioCache.get(url)
@@ -110,5 +113,5 @@ export async function loadSectionAudio(entry, audioContext, { signal } = {}) {
   const buffer = await audioContext.decodeAudioData(bytes.slice(0))
   const { rmsDb, peakDb } = measureBufferLevel(buffer)
   cacheSet(decodedAudioCache, url, { ctx: audioContext, buffer, rmsDb, peakDb })
-  return { buffer, rmsDb, peakDb }
+  return { buffer, rmsDb, peakDb, bytes }
 }

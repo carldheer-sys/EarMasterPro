@@ -61,29 +61,30 @@ function foldTail(buf, tailSamples) {
 // directly on the bounce's offline context: the rendered drone then can't
 // be lost to a failed shared-loop bake, and it lands on the exact pitch —
 // the live retune path quantizes to ±6st bands, this doesn't.
-function scheduleDroneVoices(freq, t0, stopAt, dest) {
+// Every node is constructed with an explicit {context} — see bounceSection.
+function scheduleDroneVoices(ctx, freq, t0, stopAt, dest) {
   const spec = droneVoicingSpec()
-  const lp = new Tone.Filter(freq * spec.lp.startRatio, 'lowpass')
+  const lp = new Tone.Filter({ frequency: freq * spec.lp.startRatio, type: 'lowpass', context: ctx })
   lp.Q.value = spec.lp.q
   lp.frequency.setValueAtTime(freq * spec.lp.startRatio, t0)
   lp.frequency.linearRampToValueAtTime(freq * spec.lp.endRatio, stopAt)
   lp.connect(dest)
   for (const side of spec.sides) {
-    const pan = new Tone.Panner(side.pan).connect(lp)
+    const pan = new Tone.Panner({ pan: side.pan, context: ctx }).connect(lp)
     for (const p of spec.partials) {
-      const o = new Tone.Oscillator(freq * p.ratio, 'sine')
+      const o = new Tone.Oscillator({ frequency: freq * p.ratio, type: 'sine', context: ctx })
       o.detune.value = side.det
-      const g = new Tone.Gain(p.amp)
+      const g = new Tone.Gain({ gain: p.amp, context: ctx })
       o.connect(g)
       g.connect(pan)
       o.start(t0)
       o.stop(stopAt)
     }
-    const noise = new Tone.Noise()
-    const nf = new Tone.Filter(freq * spec.noise.filterRatio, 'lowpass')
+    const noise = new Tone.Noise({ context: ctx })
+    const nf = new Tone.Filter({ frequency: freq * spec.noise.filterRatio, type: 'lowpass', context: ctx })
     nf.Q.value = spec.noise.q
-    const ng = new Tone.Gain(spec.noise.gain)
-    const np = new Tone.Panner(side.pan * spec.noise.panScale)
+    const ng = new Tone.Gain({ gain: spec.noise.gain, context: ctx })
+    const np = new Tone.Panner({ pan: side.pan * spec.noise.panScale, context: ctx })
     noise.connect(nf)
     nf.connect(ng)
     ng.connect(np)
@@ -93,18 +94,19 @@ function scheduleDroneVoices(freq, t0, stopAt, dest) {
   }
 }
 
-async function buildInstrument(name, config, midiGain, rawCtx) {
+async function buildInstrument(ctx, name, config, midiGain, rawCtx) {
   const def = SYNTH_TYPES[name]
   if (def) {
     const synth = new Tone.PolySynth(Tone.Synth, {
       oscillator: def.oscillator,
       envelope: def.envelope,
+      context: ctx,
     })
-    const chorus = new Tone.Chorus(1.2, 4, 0.5).start()
+    const chorus = new Tone.Chorus({ frequency: 1.2, delayTime: 4, depth: 0.5, context: ctx }).start()
     chorus.wet.value = 0.2
     chorus.connect(midiGain)
     if (def.filter) {
-      synth.connect(new Tone.Filter(def.filter, 'lowpass').connect(chorus))
+      synth.connect(new Tone.Filter({ frequency: def.filter, type: 'lowpass', context: ctx }).connect(chorus))
     } else {
       synth.connect(chorus)
     }
@@ -122,7 +124,7 @@ async function buildInstrument(name, config, midiGain, rawCtx) {
       urls[note] = await rawCtx.decodeAudioData(bytes.slice(0))
     } catch (_) {}
   }
-  const sampler = new Tone.Sampler({ urls })
+  const sampler = new Tone.Sampler({ urls, context: ctx })
   sampler.connect(midiGain)
   if (config.volume !== undefined) sampler.volume.value = config.volume
   if (config.attack !== undefined) sampler.attack = config.attack
@@ -170,63 +172,78 @@ export async function bounceSection({
 
   const instrumentNames = [...new Set(notes.map(n => n.instrument).filter(Boolean))]
 
-  const toneBuffer = await Tone.Offline(async (ctx) => {
-    const rawCtx = ctx.rawContext
-    // Mastering chain — verbatim copy of audioEngine.initialize:
-    const midiGain = new Tone.Volume(-3)
-    const compressor = new Tone.Compressor({ threshold: -18, ratio: 2.5, attack: 0.01, release: 0.2 })
-    const limiter = new Tone.Limiter(-1.5)
-    midiGain.connect(compressor)
-    compressor.connect(limiter)
-    limiter.toDestination()
-    const reverbSend = new Tone.Gain(Math.pow(10, -14 / 20))
-    const reverb = new Tone.Reverb({ decay: 1.6, preDelay: 0.01, wet: 1 })
-    midiGain.connect(reverbSend)
-    reverbSend.connect(reverb)
-    reverb.toDestination()
-    try { await reverb.ready } catch (_) {}
+  // IMPORTANT: build on an explicit OfflineContext, never Tone.Offline —
+  // Tone.Offline swaps the GLOBAL Tone.context for the whole async callback
+  // (reverb gen + sample decodes can take seconds on mobile), so any Tone
+  // node constructed meanwhile by the live path (instruments, drone,
+  // master chain) silently binds to the dying offline context and renders
+  // into a buffer nobody hears. Passing {context} per node leaves the
+  // global context untouched — zero hijack window.
+  const ctx = new Tone.OfflineContext(2, renderSec, sr)
+  const rawCtx = ctx.rawContext
+  let toneBuffer
+  try {
 
-    // Players — same name→synth/sampler→default resolution as getPlayer.
-    const players = {}
-    for (const name of instrumentNames) {
-      const config = instrumentConfigs[name] || INSTRUMENT_CONFIGS[name] || {}
-      players[name] = await buildInstrument(name, config, midiGain, rawCtx)
-    }
-    const fallback = players['synth'] || (instrumentNames.length ? null : null)
-      || (await buildInstrument('synth', instrumentConfigs['synth'] || INSTRUMENT_CONFIGS['synth'] || {}, midiGain, rawCtx))
-    const playerFor = (n) => players[n.instrument] || fallback
+  // Mastering chain — verbatim copy of audioEngine.initialize:
+  const midiGain = new Tone.Volume({ volume: -3, context: ctx })
+  const compressor = new Tone.Compressor({ threshold: -18, ratio: 2.5, attack: 0.01, release: 0.2, context: ctx })
+  const limiter = new Tone.Limiter({ threshold: -1.5, context: ctx })
+  midiGain.connect(compressor)
+  compressor.connect(limiter)
+  limiter.toDestination()
+  const reverbSend = new Tone.Gain({ gain: Math.pow(10, -14 / 20), context: ctx })
+  const reverb = new Tone.Reverb({ decay: 1.6, preDelay: 0.01, wet: 1, context: ctx })
+  midiGain.connect(reverbSend)
+  reverbSend.connect(reverb)
+  reverb.toDestination()
+  try { await reverb.ready } catch (_) {}
 
-    // Notes — velocity math identical to scheduleNotesAudioClock.fire.
-    for (const n of notes) {
-      const player = playerFor(n)
-      if (!player) continue
-      const t = n.start * spb
-      const durSec = Math.max(0.05, Math.min(n.duration, regionBeats - n.start) * spb)
-      const velocity = Math.min(Math.max((n.velocity ?? 0.8) * Math.pow(10, (n.volume ?? 0) / 20), 0), 1)
-      try { player.triggerAttackRelease(n.note, durSec, t, velocity) } catch (_) {}
-    }
+  // Players — same name→synth/sampler→default resolution as getPlayer.
+  const players = {}
+  for (const name of instrumentNames) {
+    const config = instrumentConfigs[name] || INSTRUMENT_CONFIGS[name] || {}
+    players[name] = await buildInstrument(ctx, name, config, midiGain, rawCtx)
+  }
+  const fallback = players['synth']
+    || (await buildInstrument(ctx, 'synth', instrumentConfigs['synth'] || INSTRUMENT_CONFIGS['synth'] || {}, midiGain, rawCtx))
+  const playerFor = (n) => players[n.instrument] || fallback
 
-    // Drone segments — the droneBaker voicing built inline on this offline
-    // context (so a failed shared-loop bake can't strip the drone from the
-    // render), with a Sonofield-style envelope: ~1s attack per segment, 2s
-    // release tail that overlaps the next key change into a true crossfade.
-    // Same level as the live _startDroneLoop: volumeDb +3dB — a sine drone
-    // bed reads far quieter than pitched voices at equal RMS.
-    const droneLevel = Math.pow(10, (droneDb + 3) / 20)
-    for (const { seg, freq } of segs) {
-      const t0 = seg.start * spb
-      const tEnd = Math.min(seg.end, regionBeats) * spb
-      const g = new Tone.Gain(0).connect(midiGain)
-      const attackEnd = Math.min(t0 + DRONE_ATTACK_S, tEnd)
-      g.gain.setValueAtTime(0, t0)
-      g.gain.linearRampToValueAtTime(droneLevel, attackEnd)
-      const releaseStart = Math.max(tEnd, attackEnd)
-      const stopAt = tEnd + DRONE_RELEASE_S
-      g.gain.setValueAtTime(droneLevel, releaseStart)
-      g.gain.linearRampToValueAtTime(0, stopAt)
-      scheduleDroneVoices(freq, t0, stopAt + 0.05, g)
-    }
-  }, renderSec, 2, sr)
+  // Notes — velocity math identical to scheduleNotesAudioClock.fire.
+  for (const n of notes) {
+    const player = playerFor(n)
+    if (!player) continue
+    const t = n.start * spb
+    const durSec = Math.max(0.05, Math.min(n.duration, regionBeats - n.start) * spb)
+    const velocity = Math.min(Math.max((n.velocity ?? 0.8) * Math.pow(10, (n.volume ?? 0) / 20), 0), 1)
+    try { player.triggerAttackRelease(n.note, durSec, t, velocity) } catch (_) {}
+  }
+
+  // Drone segments — the droneBaker voicing built inline on this offline
+  // context (so a failed shared-loop bake can't strip the drone from the
+  // render), with a Sonofield-style envelope: ~1s attack per segment, 2s
+  // release tail that overlaps the next key change into a true crossfade.
+  // Same level as the live _startDroneLoop: volumeDb +3dB — a sine drone
+  // bed reads far quieter than pitched voices at equal RMS.
+  const droneLevel = Math.pow(10, (droneDb + 3) / 20)
+  for (const { seg, freq } of segs) {
+    const t0 = seg.start * spb
+    const tEnd = Math.min(seg.end, regionBeats) * spb
+    const g = new Tone.Gain({ gain: 0, context: ctx }).connect(midiGain)
+    const attackEnd = Math.min(t0 + DRONE_ATTACK_S, tEnd)
+    g.gain.setValueAtTime(0, t0)
+    g.gain.linearRampToValueAtTime(droneLevel, attackEnd)
+    const releaseStart = Math.max(tEnd, attackEnd)
+    const stopAt = tEnd + DRONE_RELEASE_S
+    g.gain.setValueAtTime(droneLevel, releaseStart)
+    g.gain.linearRampToValueAtTime(0, stopAt)
+    scheduleDroneVoices(ctx, freq, t0, stopAt + 0.05, g)
+  }
+
+  toneBuffer = await ctx.render()
+  } finally {
+    // The native OfflineAudioContext is single-use — release it promptly.
+    try { ctx.dispose() } catch (_) {}
+  }
 
   const rendered = toneBuffer.get?.() ?? toneBuffer._buffer ?? toneBuffer
   if (looping) {

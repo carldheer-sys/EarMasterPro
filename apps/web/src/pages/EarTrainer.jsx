@@ -3,7 +3,7 @@ import * as Tone from 'tone'
 import { BookOpen, Eye, EyeOff, FileText, Hash, Headphones, Keyboard, Loader2, Lock, Moon, Pause, Play, Repeat, Settings, Square, Sun, Type, Minus, Plus } from 'lucide-react'
 import audioEngine, { INSTRUMENT_CONFIGS, isContextBlocked, isPreActivationBlockedContext, resumeWithTimeout, swapToneContext } from '@common/lib/audioEngine'
 import { GranularPlayer } from '@common/lib/granularPlayer'
-import { encodeWavPcm16, stretchBufferOla, MediaSongPlayer } from '@common/lib/mediaPlayback'
+import { encodeWavPcm16Async, stretchBufferOlaAsync, MediaSongPlayer } from '@common/lib/mediaPlayback'
 import { bounceSection } from '@common/lib/sectionBounce'
 import {
   beatsPerBarFromTimeSignature,
@@ -34,6 +34,20 @@ const BOUNCE_TARGET_RMS_DB = -17 // rendered MIDI mixes sit ~1dB under the song
 const BOUNCE_MAX_BOOST_DB = 12   // sparse renders may need a big lift
 const MAX_PLAYBACK_RECOVERY_ATTEMPTS = 3
 const STALE_AUDIO_REBUILD_MS = 2 * 60 * 1000
+const BOUNCE_WAIT_MS = 25000      // never let a hung offline render stall Play
+
+// el.volume is ignored on iOS Safari — detect once: where it works, the
+// media path hands the element the original MP3 + sets volume (zero encode,
+// ~10x less memory); on iOS the gain is baked into a WAV instead.
+const mediaVolumeWritable = (() => {
+  try {
+    const a = document.createElement('audio')
+    a.volume = 0.5
+    return a.volume === 0.5
+  } catch (_) { return false }
+})()
+
+const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))])
 
 // User-adjustable sound settings (persisted). Volumes are dB added to the
 // per-note velocity scaling; instrument names resolve via audioEngine.
@@ -371,6 +385,7 @@ function EarTrainer() {
   const mediaUrlsRef = useRef(new Set())   // created object URLs (revoked per section)
   const mediaBeatMapRef = useRef(null)  // mediaSec → section beat (cursor source)
   const mediaWatchTimerRef = useRef(null)
+  const mediaCursorRafRef = useRef(0)   // RAF loop — playhead at display rate
   const audioDbRef = useRef(AUDIO_DB)     // per-track loudness gain (dB)
   const noteTimersRef = useRef([])
   const notePendingRef = useRef([])   // enqueued-but-unfired audio-clock notes
@@ -478,6 +493,7 @@ function EarTrainer() {
     if (!keepRecovery) playbackRecoveryAttemptRef.current = 0
     cancelPendingAudioNotes(notePendingRef)
     if (mediaWatchTimerRef.current) { window.clearInterval(mediaWatchTimerRef.current); mediaWatchTimerRef.current = null }
+    if (mediaCursorRafRef.current) { cancelAnimationFrame(mediaCursorRafRef.current); mediaCursorRafRef.current = 0 }
     mediaBeatMapRef.current = null
     mediaPlayerRef.current?.stop()
     audioEngine.stop()
@@ -537,6 +553,7 @@ function EarTrainer() {
       // actually is — the WebAudio transport wasn't driving this playback.
       pausedBeatRef.current = mediaBeatMapRef.current(mediaPlayerRef.current.positionSec)
       if (mediaWatchTimerRef.current) { window.clearInterval(mediaWatchTimerRef.current); mediaWatchTimerRef.current = null }
+      if (mediaCursorRafRef.current) { cancelAnimationFrame(mediaCursorRafRef.current); mediaCursorRafRef.current = 0 }
       mediaPlayerRef.current.pause()
       startPausedDrone(pausedBeatRef.current)
     } else {
@@ -734,11 +751,32 @@ function EarTrainer() {
     } catch (_) {}
   }, [selected])
 
-  // One interval drives the playhead off the REAL media clock (the WebAudio
-  // transport isn't running for media playback) and recovers media stalls —
-  // pause+play nudge twice, then give up. Never touches the audio graph.
+  // Stall recovery on a 100ms interval; the CURSOR runs on a separate RAF
+  // loop at display rate (was once folded into this interval — 10fps steps
+  // looked like a stuttering playhead). el.currentTime granularity varies
+  // (~250ms on some Safari), so the RAF interpolates with the wall clock,
+  // capped +150ms past the last sample so a stall can't run the cursor ahead.
   const startMediaWatch = useCallback((playbackToken) => {
     if (mediaWatchTimerRef.current) window.clearInterval(mediaWatchTimerRef.current)
+    if (mediaCursorRafRef.current) { cancelAnimationFrame(mediaCursorRafRef.current); mediaCursorRafRef.current = 0 }
+    let lastPos = -1, lastPosAt = 0
+    const step = (now) => {
+      const player = mediaPlayerRef.current
+      const map = mediaBeatMapRef.current
+      if (playbackToken !== playbackTokenRef.current || !player || !map) {
+        mediaCursorRafRef.current = 0
+        return
+      }
+      const pos = player.positionSec
+      if (pos !== lastPos) { lastPos = pos; lastPosAt = now }
+      const rate = player.el?.playbackRate || 1
+      const interp = lastPos < 0 ? pos : pos + Math.min((now - lastPosAt) / 1000 * rate, 0.15)
+      const total = sectionRef.current?.totalBeats || 1
+      cursorRef.current = Math.max(0, Math.min(1, map(interp) / total))
+      mediaCursorRafRef.current = requestAnimationFrame(step)
+    }
+    mediaCursorRafRef.current = requestAnimationFrame(step)
+
     let last = -1, stalls = 0
     mediaWatchTimerRef.current = window.setInterval(() => {
       const player = mediaPlayerRef.current
@@ -746,10 +784,6 @@ function EarTrainer() {
         window.clearInterval(mediaWatchTimerRef.current)
         mediaWatchTimerRef.current = null
         return
-      }
-      const total = sectionRef.current?.totalBeats || 1
-      if (mediaBeatMapRef.current) {
-        cursorRef.current = Math.max(0, Math.min(1, mediaBeatMapRef.current(player.positionSec) / total))
       }
       const pos = player.positionSec
       if (player.playing && last >= 0 && Math.abs(pos - last) < 0.005) {
@@ -781,7 +815,7 @@ function EarTrainer() {
         // (the limiter leaves little peak headroom on loud renders, which is
         // correct: they're already near full scale).
         const gainDb = Math.min(BOUNCE_TARGET_RMS_DB - rmsDb, BOUNCE_MAX_BOOST_DB, AUDIO_PEAK_CEIL_DB - peakDb)
-        const blob = encodeWavPcm16(rendered.buf, Math.pow(10, gainDb / 20))
+        const blob = await encodeWavPcm16Async(rendered.buf, Math.pow(10, gainDb / 20))
         const url = newMediaUrl(blob)
         if (entry.revoked) { URL.revokeObjectURL(url); return null }
         return { url, seconds: rendered.seconds }
@@ -853,7 +887,10 @@ function EarTrainer() {
         // Below 0.5x iOS can't preserve pitch — play a pre-stretched WAV.
         url = song.urls.get(speed)
         if (!url) {
-          const blob = encodeWavPcm16(stretchBufferOla(song.buffer, speed), song.gainLin)
+          // Chunked async — the sync path froze the main thread for seconds
+          // on a full-length song inside the Play gesture.
+          const stretched = await stretchBufferOlaAsync(song.buffer, speed)
+          const blob = await encodeWavPcm16Async(stretched, song.gainLin)
           if (!blob) return mediaFail('stretch WAV encode failed')
           url = newMediaUrl(blob)
           song.urls.set(speed, url)
@@ -869,6 +906,8 @@ function EarTrainer() {
       // `speed` song-seconds, so file times scale by 1/speed vs song times.
       const fileScale = rate === 1 ? 1 / speed : 1
       player.load(url)
+      // MP3 path (non-iOS): gain via el.volume; baked WAVs carry it already.
+      player.setVolume(url === song.mp3Url ? song.gainLin : 1)
       try {
         await player.start({
           offsetSec: (resumeBeat / bps) * fileScale,
@@ -884,6 +923,7 @@ function EarTrainer() {
       startMediaWatch(playbackTokenRef.current)
       updateMediaSession()
       handoffDrone()
+      console.info('[audio] media: playing song audio')
       return true
     }
 
@@ -904,14 +944,17 @@ function EarTrainer() {
       instrumentConfigs: audioEngine.instrumentConfigs,
       startBeat,
     })
-    const rendered = await entry.promise
+    // A stalled OfflineAudioContext render must not hang Play forever —
+    // fall back to WebAudio after BOUNCE_WAIT_MS.
+    const rendered = await withTimeout(entry.promise, BOUNCE_WAIT_MS)
     if (playbackTokenRef.current !== tokenAtStart) return mediaFail('superseded', null, 'debug')
-    if (!rendered) return mediaFail('bounce render failed')
+    if (!rendered) return mediaFail('bounce render failed or timed out')
     if (entry.revoked) return mediaFail('bounce evicted', null, 'debug')
     cleanup()
     const playToken = playbackTokenRef.current
     const spb = 60 / effectiveTempo
     player.load(rendered.url)
+    player.setVolume(1) // bounce WAVs carry baked loudness normalization
     try {
       await player.start({
         offsetSec: resumeRegionBeat * spb,
@@ -928,6 +971,7 @@ function EarTrainer() {
     startMediaWatch(playbackTokenRef.current)
     updateMediaSession()
     handoffDrone()
+    console.info('[audio] media: playing rendered bounce')
     return true
   }, [startMediaWatch, stopPlayback, updateMediaSession, getOrStartBounce, newMediaUrl])
 
@@ -1404,7 +1448,7 @@ function EarTrainer() {
         audioDbRef.current = AUDIO_DB      // reset until the new track is measured
         const ctx = Tone.getContext().rawContext
         loadSectionAudio(entry, ctx, { signal: controller.signal })
-          .then(async ({ buffer, rmsDb, peakDb }) => {
+          .then(async ({ buffer, rmsDb, peakDb, bytes }) => {
             if (token !== loadTokenRef.current) return
             // Loudness-normalize toward MIDI level: pure gain, never clips
             // (boost is capped by the track's own sample-peak headroom).
@@ -1412,13 +1456,23 @@ function EarTrainer() {
               AUDIO_TARGET_RMS_DB - rmsDb,
               AUDIO_MAX_BOOST_DB,
               AUDIO_PEAK_CEIL_DB - peakDb)
-            // Bake the normalisation into a WAV blob for <audio> playback —
-            // iOS makes el.volume read-only, so the gain lives in the samples.
             const gainLin = Math.pow(10, audioDbRef.current / 20)
-            const wav = encodeWavPcm16(buffer, gainLin)
-            if (wav && token === loadTokenRef.current) {
-              songBlobRef.current = { buffer, gainLin, urls: new Map([[1, newMediaUrl(wav)]]) }
+            // Where el.volume is writable (Android/desktop) the element plays
+            // the original MP3 — zero encode, ~10x less memory than a WAV
+            // bake. el.volume clamps at 1.0, so a needed BOOST still requires
+            // the baked WAV. On iOS (el.volume ignored) the gain always goes
+            // into the WAV samples — chunked so it can't freeze the UI.
+            let urls
+            let mp3Url = null
+            if (mediaVolumeWritable && bytes && gainLin <= 1) {
+              mp3Url = newMediaUrl(new Blob([bytes], { type: 'audio/mpeg' }))
+              urls = new Map([[1, mp3Url]])
+            } else {
+              const wav = await encodeWavPcm16Async(buffer, gainLin)
+              if (!wav || token !== loadTokenRef.current) return
+              urls = new Map([[1, newMediaUrl(wav)]])
             }
+            songBlobRef.current = { buffer, gainLin, mp3Url, urls }
             const player = new GranularPlayer()
             player.loadBuffer(buffer)
             try { await player.initialize(ctx) } catch (_) { /* fallback path still works */ }
@@ -1471,9 +1525,17 @@ function EarTrainer() {
 
   // Prefetch the current configuration's bounce in the background so Play is
   // instant — the cache dedupes, so this only renders genuinely new configs.
+  // Debounced: userSettings changes per slider tick, and each render is a
+  // multi-second offline render — without the settle window every drag
+  // spawned a fresh render and thrashed the CPU on mobile. Also skipped
+  // while playing: a bounce competing with live media wastes cycles.
   useEffect(() => {
     if (loading || !session) return
-    prefetchBounce()
+    const t = window.setTimeout(() => {
+      if (playbackStateRef.current === 'playing') return
+      prefetchBounce()
+    }, 600)
+    return () => window.clearTimeout(t)
   }, [prefetchBounce, source, regionStart, regionEnd, speed, isLooping, userSettings, session, loading])
 
   // Initial catalog load + auto-select first section
