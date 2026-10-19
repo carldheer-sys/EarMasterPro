@@ -3,8 +3,6 @@ import * as Tone from 'tone'
 import { BookOpen, Eye, EyeOff, FileText, Hash, Headphones, Keyboard, Loader2, Lock, Moon, Pause, Play, Repeat, Settings, Square, Sun, Type, Minus, Plus } from 'lucide-react'
 import audioEngine, { INSTRUMENT_CONFIGS, isContextBlocked, isPreActivationBlockedContext, resumeWithTimeout, swapToneContext } from '@common/lib/audioEngine'
 import { GranularPlayer } from '@common/lib/granularPlayer'
-import { encodeWavPcm16Async, stretchBufferOlaAsync, MediaSongPlayer } from '@common/lib/mediaPlayback'
-import { bounceSection } from '@common/lib/sectionBounce'
 import {
   beatsPerBarFromTimeSignature,
   buildMeterTimeline,
@@ -15,7 +13,7 @@ import {
   normalizeTimeSignature,
   timeSignatureToString,
 } from '@common/lib/midiUtils'
-import { loadCatalog, loadSectionSession, loadSectionAudio, invalidateCatalog, StaleCatalogError, measureBufferLevel } from '@/lib/catalog'
+import { loadCatalog, loadSectionSession, loadSectionAudio, invalidateCatalog, StaleCatalogError } from '@/lib/catalog'
 import PianoRoll from '@/components/PianoRoll'
 import CatalogSheet from '@/components/CatalogSheet'
 import SettingsSheet from '@/components/SettingsSheet'
@@ -30,22 +28,9 @@ const AUDIO_DB = -2              // fallback when a track has no measurement
 const AUDIO_TARGET_RMS_DB = -16  // normalize song audio to ~MIDI loudness
 const AUDIO_MAX_BOOST_DB = 6     // don't amplify quiet tracks beyond this
 const AUDIO_PEAK_CEIL_DB = -1    // post-gain sample peak ceiling (no clipping)
-const BOUNCE_TARGET_RMS_DB = -17 // rendered MIDI mixes sit ~1dB under the song
-const BOUNCE_MAX_BOOST_DB = 12   // sparse renders may need a big lift
 const MAX_PLAYBACK_RECOVERY_ATTEMPTS = 3
 const STALE_AUDIO_REBUILD_MS = 2 * 60 * 1000
-const BOUNCE_WAIT_MS = 25000      // never let a hung offline render stall Play
-
-// el.volume is ignored on iOS Safari — detect once: where it works, the
-// media path hands the element the original MP3 + sets volume (zero encode,
-// ~10x less memory); on iOS the gain is baked into a WAV instead.
-const mediaVolumeWritable = (() => {
-  try {
-    const a = document.createElement('audio')
-    a.volume = 0.5
-    return a.volume === 0.5
-  } catch (_) { return false }
-})()
+const INSTRUMENT_WAIT_MS = 350   // max wait in play() before starting with fallback
 
 const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))])
 
@@ -130,10 +115,6 @@ const AUDIO_LOOKAHEAD_S = 0.4   // minimum audio-clock look-ahead (raised on hig
 const AUDIO_LOOKAHEAD_MAX_S = 1.5
 const AUDIO_TICK_MS = 100       // scheduler wake-up interval
 
-// iOS Safari won't pitch-preserve playbackRate below 0.5 — slower speeds get a
-// pre-stretched WAV instead (played at rate 1).
-const MIN_NATIVE_RATE = 0.5
-
 function sliceRegionNotes(list, startBeat, endBeat, volumeDb, instrument) {
   return (list || [])
     .filter(n => n.start < endBeat && n.start + n.duration > startBeat)
@@ -146,16 +127,6 @@ function sliceRegionNotes(list, startBeat, endBeat, volumeDb, instrument) {
     }))
 }
 
-// Everything that makes a rendered bounce unique — any change re-renders.
-// `loop` is part of the key: a loop render folds the tail into the head.
-function bounceKeyOf({ src, us, speed, region, looping, instrumentConfigs }) {
-  return JSON.stringify({
-    src,
-    mi: us.melodyInstrument, ci: us.chordsInstrument,
-    mv: us.melodyVolume, cv: us.chordsVolume, dv: us.droneVolume,
-    sp: speed, r: region, lp: looping, cfg: instrumentConfigs,
-  })
-}
 // 'playback' gives the largest output buffer the platform allows. Never retry
 // with 'interactive' — its tiny buffer underruns on Bluetooth and turns one
 // transient hiccup into permanent stutter.
@@ -353,16 +324,20 @@ function EarTrainer() {
     setUserSettings(s => ({ ...s, ...patch }))
   }, [])
 
-  // Lazily load an instrument — samplers fetch + decode on first use
+  // Lazily load an instrument — samplers fetch + decode on first use.
+  // Note: 'synth' builds an instant PolySynth fallback in initialize() and
+  // also upgrades to the 16-zone Sonofield SF2 Tone.Sampler in samplers['synth'].
   const ensureInstrument = useCallback(async (name) => {
-    if (!name || audioEngine.synths[name] || audioEngine.samplers[name]) return
-    setLoadingInstruments(prev => { const s = new Set(prev); s.add(name); return s })
+    if (!name) return
+    if (name === 'synth' ? audioEngine.samplers.synth : (audioEngine.samplers[name] || audioEngine.synths[name])) return
+    const showSpinner = name !== 'synth' && name !== 'pad'
+    if (showSpinner) setLoadingInstruments(prev => { const s = new Set(prev); s.add(name); return s })
     try {
       await audioEngine.loadInstrument(name, INSTRUMENT_CONFIGS[name] || {})
     } catch (err) {
       console.warn(`[EarTrainer] Instrument ${name} failed to load:`, err)
     } finally {
-      setLoadingInstruments(prev => { const s = new Set(prev); s.delete(name); return s })
+      if (showSpinner) setLoadingInstruments(prev => { const s = new Set(prev); s.delete(name); return s })
     }
   }, [])
 
@@ -377,15 +352,6 @@ function EarTrainer() {
   // Refs
   const cursorRef = useRef(0)
   const audioPlayerRef = useRef(null)
-  // Media-element playback (<audio> — the OS pipeline that stays smooth on
-  // Bluetooth; WebAudio's render path underruns there on iOS).
-  const mediaPlayerRef = useRef(null)
-  const songBlobRef = useRef(null)      // {buffer, gainLin, urls: Map<speed,url>}
-  const bounceCacheRef = useRef(new Map()) // key → {promise, revoked}
-  const mediaUrlsRef = useRef(new Set())   // created object URLs (revoked per section)
-  const mediaBeatMapRef = useRef(null)  // mediaSec → section beat (cursor source)
-  const mediaWatchTimerRef = useRef(null)
-  const mediaCursorRafRef = useRef(0)   // RAF loop — playhead at display rate
   const audioDbRef = useRef(AUDIO_DB)     // per-track loudness gain (dB)
   const noteTimersRef = useRef([])
   const notePendingRef = useRef([])   // enqueued-but-unfired audio-clock notes
@@ -492,10 +458,6 @@ function EarTrainer() {
     if (playbackWatchdogTimerRef.current) { window.clearTimeout(playbackWatchdogTimerRef.current); playbackWatchdogTimerRef.current = null }
     if (!keepRecovery) playbackRecoveryAttemptRef.current = 0
     cancelPendingAudioNotes(notePendingRef)
-    if (mediaWatchTimerRef.current) { window.clearInterval(mediaWatchTimerRef.current); mediaWatchTimerRef.current = null }
-    if (mediaCursorRafRef.current) { cancelAnimationFrame(mediaCursorRafRef.current); mediaCursorRafRef.current = 0 }
-    mediaBeatMapRef.current = null
-    mediaPlayerRef.current?.stop()
     audioEngine.stop()
     setKbDroneOn(false)
     releaseActiveNotes(activeNotesRef)
@@ -523,50 +485,17 @@ function EarTrainer() {
     setPlaybackState('stopped')
   }, [])
 
-  // On media pause of a drone source the baked drone freezes with the
-  // element — keep the tonal reference alive with a live drone at the key
-  // under the paused beat, matching the WebAudio pause behavior. It is
-  // stopped on the next media start (its voice is inside the bounce) and on
-  // stopPlayback via audioEngine.stop().
-  const startPausedDrone = useCallback((beat) => {
-    const src = sourceRef.current
-    if (src !== 'melody-drone' && src !== 'chords-drone') return
-    const sec = sectionRef.current
-    if (!sec) return
-    const events = sec.keyEvents?.length ? sec.keyEvents : [{ beat: 0, key: sec.settings.key }]
-    let key = events[0].key
-    for (const e of events) { if (e.beat <= beat) key = e.key; else break }
-    dronePlayingRef.current = true   // set synchronously — drives the
-    droneKeyRef.current = key        // audioSession-type decision below
-    const us = userSettingsRef.current
-    // 128 beats ≈ a long pause for the legacy-synth fallback path (the baked
-    // loop ignores the duration — it free-runs until stopDrone).
-    audioEngine.ensureActive({ loadDefaultPiano: false })
-      .then(() => audioEngine.scheduleDroneNotes(key, Math.max(sec.totalBeats, 128), us.droneVolume))
-      .catch(() => { dronePlayingRef.current = false })
-  }, [])
-
   const pausePlayback = useCallback(() => {
     if (playbackState !== 'playing') return
-    if (mediaBeatMapRef.current && mediaPlayerRef.current) {
-      // Media-element playback: the paused beat is wherever the media clock
-      // actually is — the WebAudio transport wasn't driving this playback.
-      pausedBeatRef.current = mediaBeatMapRef.current(mediaPlayerRef.current.positionSec)
-      if (mediaWatchTimerRef.current) { window.clearInterval(mediaWatchTimerRef.current); mediaWatchTimerRef.current = null }
-      if (mediaCursorRafRef.current) { cancelAnimationFrame(mediaCursorRafRef.current); mediaCursorRafRef.current = 0 }
-      mediaPlayerRef.current.pause()
-      startPausedDrone(pausedBeatRef.current)
-    } else {
-      const { startBeat, effectiveTempo } = currentRegionRef.current
-      const elapsedBeats = Math.max(0, (Tone.now() - playbackStartTimeRef.current) * effectiveTempo / 60)
-      pausedBeatRef.current = startBeat + elapsedBeats
-      clearTimerList(noteTimersRef)
-      if (stopTimerRef.current) { window.clearTimeout(stopTimerRef.current); stopTimerRef.current = null }
-      if (playbackWatchdogTimerRef.current) { window.clearTimeout(playbackWatchdogTimerRef.current); playbackWatchdogTimerRef.current = null }
-    }
+    const { startBeat, effectiveTempo } = currentRegionRef.current
+    const elapsedBeats = Math.max(0, (Tone.now() - playbackStartTimeRef.current) * effectiveTempo / 60)
+    pausedBeatRef.current = startBeat + elapsedBeats
+    clearTimerList(noteTimersRef)
+    if (stopTimerRef.current) { window.clearTimeout(stopTimerRef.current); stopTimerRef.current = null }
+    if (playbackWatchdogTimerRef.current) { window.clearTimeout(playbackWatchdogTimerRef.current); playbackWatchdogTimerRef.current = null }
     cancelPendingAudioNotes(notePendingRef)
     audioEngine.pause({ releaseActiveNotes: false })
-    // The drone keeps sounding while paused — its synth layers are
+    // The drone keeps sounding while paused — its loop source / synth layers are
     // free-running (not transport-bound), only stopPlayback() should end
     // them. dronePlayingRef stays true so resume re-arms future key-change
     // segments without re-attacking the current voice.
@@ -588,7 +517,7 @@ function EarTrainer() {
     try { if (navigator.mediaSession) navigator.mediaSession.playbackState = 'paused' } catch (_) {}
     playbackStateRef.current = 'paused'
     setPlaybackState('paused')
-  }, [playbackState, startPausedDrone])
+  }, [playbackState])
 
   // ── Playback recovery (watchdog, ported) ─────────────────────────────────
 
@@ -643,28 +572,13 @@ function EarTrainer() {
       const rawAdvanced = rawContext ? rawContext.currentTime > before.rawTime + 0.15 : false
       const ticksAdvanced = Tone.getTransport().ticks > before.transportTicks + 2
       const cursorAdvanced = cursorRef.current > before.cursorPosition + 0.001
-      // iOS can leave a context reporting 'running' with dead output after a
-      // session interruption — a near-zero output level while the clock is
-      // demonstrably running AND a note should be sounding means the render
-      // graph is silently broken. A frozen clock or a musical rest must not
-      // trigger recovery — so the silence veto only runs on the first tick,
-      // right after start, when a note is known to be due. One read can still
-      // land in a gap, so re-sample once.
-      let audiblyAlive = true
-      if (before.checkSilence) {
-        audiblyAlive = !(rawAdvanced && isSoundDue()) || audioEngine.getOutputLevel() > 1e-4
-        if (!audiblyAlive) {
-          await new Promise(r => window.setTimeout(r, 250))
-          if (playbackToken !== playbackTokenRef.current) return
-          audiblyAlive = !isSoundDue() || audioEngine.getOutputLevel() > 1e-4
-        }
-      }
-      if (Tone.getContext().state === 'running' && rawAdvanced && (ticksAdvanced || cursorAdvanced) && audiblyAlive) {
+      // Never tear down a context whose hardware audio clock and transport are
+      // both advancing — on Bluetooth A2DP, analyser samples can lag behind
+      // scheduled audio or land in an attack ramp, and a false rebuild causes
+      // a 1-2s mid-song dropout.
+      if (Tone.getContext().state === 'running' && rawAdvanced && (ticksAdvanced || cursorAdvanced)) {
         playbackRecoveryAttemptRef.current = 0
         deadTicks = 0
-        // Keep monitoring clock health while playing — iOS can kill the
-        // render thread mid-play; a frozen clock is unambiguous (silence is
-        // not, so it's skipped on periodic ticks).
         before = {
           rawTime: rawContext.currentTime,
           transportTicks: Tone.getTransport().ticks,
@@ -691,8 +605,7 @@ function EarTrainer() {
           if (playbackToken !== playbackTokenRef.current || playbackStateRef.current !== 'playing') return
           const nowCtx = Tone.getContext().rawContext
           const nowAdvanced = nowCtx && rawContext ? nowCtx.currentTime > rawContext.currentTime + 0.1 : false
-          const nowAudible = !(before.checkSilence && nowAdvanced && isSoundDue()) || audioEngine.getOutputLevel() > 1e-4
-          if (Tone.getContext().state === 'running' && nowAdvanced && nowAudible && Tone.getTransport().ticks > before.transportTicks + 2) {
+          if (Tone.getContext().state === 'running' && nowAdvanced && Tone.getTransport().ticks > before.transportTicks + 2) {
             playbackRecoveryAttemptRef.current = 0
             deadTicks = 0
             before = {
@@ -727,284 +640,6 @@ function EarTrainer() {
     playbackWatchdogTimerRef.current = window.setTimeout(tick, 900)
   }, [recoverAudioGraphForRetry, stopPlayback])
 
-  // ── Media-element playback (<audio>) ────────────────────────────────────
-  // <audio> uses the OS media pipeline with deep buffering — the path that
-  // stays smooth over Bluetooth where iOS's WebAudio output underruns. 'full'
-  // plays the loudness-baked song WAV; MIDI/drone sources play an offline-
-  // rendered bounce. WebAudio remains the fallback for everything else.
-
-  const newMediaUrl = useCallback((blob) => {
-    const url = URL.createObjectURL(blob)
-    mediaUrlsRef.current.add(url)
-    return url
-  }, [])
-
-  const updateMediaSession = useCallback(() => {
-    try {
-      if (navigator.mediaSession && selected?.entry) {
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: selected.title || '',
-          artist: selected.artist || '',
-        })
-        navigator.mediaSession.playbackState = 'playing'
-      }
-    } catch (_) {}
-  }, [selected])
-
-  // Stall recovery on a 100ms interval; the CURSOR runs on a separate RAF
-  // loop at display rate (was once folded into this interval — 10fps steps
-  // looked like a stuttering playhead). el.currentTime granularity varies
-  // (~250ms on some Safari), so the RAF interpolates with the wall clock,
-  // capped +150ms past the last sample so a stall can't run the cursor ahead.
-  const startMediaWatch = useCallback((playbackToken) => {
-    if (mediaWatchTimerRef.current) window.clearInterval(mediaWatchTimerRef.current)
-    if (mediaCursorRafRef.current) { cancelAnimationFrame(mediaCursorRafRef.current); mediaCursorRafRef.current = 0 }
-    let lastPos = -1, lastPosAt = 0
-    const step = (now) => {
-      const player = mediaPlayerRef.current
-      const map = mediaBeatMapRef.current
-      if (playbackToken !== playbackTokenRef.current || !player || !map) {
-        mediaCursorRafRef.current = 0
-        return
-      }
-      const pos = player.positionSec
-      if (pos !== lastPos) { lastPos = pos; lastPosAt = now }
-      const rate = player.el?.playbackRate || 1
-      const interp = lastPos < 0 ? pos : pos + Math.min((now - lastPosAt) / 1000 * rate, 0.15)
-      const total = sectionRef.current?.totalBeats || 1
-      cursorRef.current = Math.max(0, Math.min(1, map(interp) / total))
-      mediaCursorRafRef.current = requestAnimationFrame(step)
-    }
-    mediaCursorRafRef.current = requestAnimationFrame(step)
-
-    let last = -1, stalls = 0
-    mediaWatchTimerRef.current = window.setInterval(() => {
-      const player = mediaPlayerRef.current
-      if (playbackToken !== playbackTokenRef.current || playbackStateRef.current !== 'playing' || !player) {
-        window.clearInterval(mediaWatchTimerRef.current)
-        mediaWatchTimerRef.current = null
-        return
-      }
-      const pos = player.positionSec
-      if (player.playing && last >= 0 && Math.abs(pos - last) < 0.005) {
-        stalls += 1
-        if (stalls === 2) {
-          player.el.pause()
-          player.el.play()?.catch?.(() => {})
-        } else if (stalls >= 4) {
-          stopPlayback()
-          setError('Playback stalled — tap Play again.')
-        }
-      } else stalls = 0
-      last = pos
-    }, 100)
-  }, [stopPlayback])
-
-  const getOrStartBounce = useCallback((key, params) => {
-    let entry = bounceCacheRef.current.get(key)
-    if (!entry) {
-      entry = { promise: null, revoked: false }
-      entry.promise = (async () => {
-        const rendered = await bounceSection(params)
-        if (!rendered) { bounceCacheRef.current.delete(key); return null }
-        // A render that resolves to silence would otherwise be cached and
-        // "play" forever — evict + fall back to WebAudio instead.
-        const { rmsDb, peakDb } = measureBufferLevel(rendered.buf)
-        if (!(peakDb > -60)) { bounceCacheRef.current.delete(key); return null }
-        // Loudness-normalize the mix like the song audio — pure baked gain
-        // (the limiter leaves little peak headroom on loud renders, which is
-        // correct: they're already near full scale).
-        const gainDb = Math.min(BOUNCE_TARGET_RMS_DB - rmsDb, BOUNCE_MAX_BOOST_DB, AUDIO_PEAK_CEIL_DB - peakDb)
-        const blob = await encodeWavPcm16Async(rendered.buf, Math.pow(10, gainDb / 20))
-        const url = newMediaUrl(blob)
-        if (entry.revoked) { URL.revokeObjectURL(url); return null }
-        return { url, seconds: rendered.seconds }
-      })().catch(() => { bounceCacheRef.current.delete(key); return null })
-      bounceCacheRef.current.set(key, entry)
-      // Keep the cache small — evict oldest entries and revoke their URLs
-      // once settled (a pending render is revoked on resolve via `revoked`).
-      while (bounceCacheRef.current.size > 2) {
-        const [oldKey, old] = bounceCacheRef.current.entries().next().value
-        old.revoked = true
-        // Never revoke the URL the media element is currently playing.
-        old.promise?.then(r => {
-          if (r && r.url !== mediaPlayerRef.current?.el?.src) {
-            try { URL.revokeObjectURL(r.url); mediaUrlsRef.current.delete(r.url) } catch (_) {}
-          }
-        })
-        bounceCacheRef.current.delete(oldKey)
-      }
-    }
-    return entry
-  }, [newMediaUrl])
-
-  const tryStartMediaPlayback = useCallback(async ({
-    src, us, s, notes, chordsNotes, keyEvents, startBeat, endBeat,
-    resumeBeat, regionBeats, resumeFromPause, internalTempo, effectiveTempo,
-  }) => {
-    const mediaFail = (reason, err, level = 'warn') => {
-      console[level]('[audio] media path: ' + reason + ' — WebAudio fallback', err ?? '')
-      return false
-    }
-    if (typeof Audio === 'undefined') return mediaFail('Audio unsupported')
-    const tokenAtStart = playbackTokenRef.current
-    const player = mediaPlayerRef.current ??= new MediaSongPlayer()
-    // Unlock both elements inside the live gesture — a bounce render can take
-    // seconds, after which iOS would reject play() on never-played elements.
-    await player.prime().catch(() => {})
-    const looping = isLoopingRef.current
-    const resumeRegionBeat = resumeBeat - startBeat
-    const cleanup = () => {
-      // A live paused-drone deliberately survives cleanup — handoffDrone()
-      // releases it only once media is actually playing, so its 0.25s tail
-      // overlaps the baked drone instead of leaving a gap in the resume.
-      if (!resumeFromPause) stopPlayback({ keepPreparing: true, keepRecovery: playbackRecoveryAttemptRef.current })
-      else {
-        clearTimerList(noteTimersRef)
-        releaseActiveNotes(activeNotesRef)
-        audioPlayerRef.current?.stop()
-        player.stop()
-      }
-    }
-    // Fresh-play cleanup already cleared the drone via stopPlayback — this
-    // only fires for the resume path's still-sounding paused drone. If the
-    // media start fails, the drone is left sounding and the WebAudio
-    // fallback's keepCurrentKey logic keeps it — seamless either way.
-    const handoffDrone = () => {
-      if (!dronePlayingRef.current) return
-      dronePlayingRef.current = false
-      droneKeyRef.current = null
-      try { audioEngine.stopDrone() } catch (_) {}
-    }
-
-    if (src === 'full') {
-      const song = songBlobRef.current
-      if (!song?.urls.has(1)) return mediaFail('song blob not ready', null, 'debug')
-      const speed = speedRef.current
-      let url = song.urls.get(1)
-      let rate = speed
-      if (speed < MIN_NATIVE_RATE) {
-        // Below 0.5x iOS can't preserve pitch — play a pre-stretched WAV.
-        url = song.urls.get(speed)
-        if (!url) {
-          // Chunked async — the sync path froze the main thread for seconds
-          // on a full-length song inside the Play gesture.
-          const stretched = await stretchBufferOlaAsync(song.buffer, speed)
-          const blob = await encodeWavPcm16Async(stretched, song.gainLin)
-          if (!blob) return mediaFail('stretch WAV encode failed')
-          url = newMediaUrl(blob)
-          song.urls.set(speed, url)
-        }
-        rate = 1
-      }
-      cleanup()
-      // cleanup() runs stopPlayback() → bumps the playback token. Anything
-      // after this point must compare against the post-cleanup token.
-      const playToken = playbackTokenRef.current
-      const bps = internalTempo / 60
-      // A stretched file is 1/speed longer — every media-second of it covers
-      // `speed` song-seconds, so file times scale by 1/speed vs song times.
-      const fileScale = rate === 1 ? 1 / speed : 1
-      player.load(url)
-      // MP3 path (non-iOS): gain via el.volume; baked WAVs carry it already.
-      player.setVolume(url === song.mp3Url ? song.gainLin : 1)
-      try {
-        await player.start({
-          offsetSec: (resumeBeat / bps) * fileScale,
-          loopStartSec: (startBeat / bps) * fileScale,
-          loopEndSec: (endBeat / bps) * fileScale,
-          looping,
-          playbackRate: rate,
-          onEnded: () => stopPlayback({ keepSeek: true }),
-        })
-      } catch (err) { return mediaFail('element start failed', err) }
-      if (playbackTokenRef.current !== playToken) { player.stop(); return mediaFail('superseded', null, 'debug') }
-      mediaBeatMapRef.current = pos => Math.min((pos / fileScale) * bps, endBeat)
-      startMediaWatch(playbackTokenRef.current)
-      updateMediaSession()
-      handoffDrone()
-      console.info('[audio] media: playing song audio')
-      return true
-    }
-
-    // MIDI/drone sources — rendered bounce keyed by everything audible.
-    const key = bounceKeyOf({ src, us, speed: speedRef.current, region: regionRef.current, looping, instrumentConfigs: audioEngine.instrumentConfigs })
-    const usesMelody = src === 'melody-drone' || src === 'melody-chords'
-    const usesChords = src === 'melody-chords' || src === 'chords' || src === 'chords-drone'
-    let midiNotes = []
-    if (usesMelody) midiNotes = midiNotes.concat(sliceRegionNotes(notes, startBeat, endBeat, us.melodyVolume, us.melodyInstrument))
-    if (usesChords) midiNotes = midiNotes.concat(sliceRegionNotes(chordsNotes, startBeat, endBeat, us.chordsVolume, us.chordsInstrument))
-    const entry = getOrStartBounce(key, {
-      notes: midiNotes,
-      keyEvents,
-      droneDb: (src === 'melody-drone' || src === 'chords-drone') ? us.droneVolume : null,
-      regionBeats,
-      tempo: effectiveTempo,
-      looping,
-      instrumentConfigs: audioEngine.instrumentConfigs,
-      startBeat,
-    })
-    // A stalled OfflineAudioContext render must not hang Play forever —
-    // fall back to WebAudio after BOUNCE_WAIT_MS.
-    const rendered = await withTimeout(entry.promise, BOUNCE_WAIT_MS)
-    if (playbackTokenRef.current !== tokenAtStart) return mediaFail('superseded', null, 'debug')
-    if (!rendered) return mediaFail('bounce render failed or timed out')
-    if (entry.revoked) return mediaFail('bounce evicted', null, 'debug')
-    cleanup()
-    const playToken = playbackTokenRef.current
-    const spb = 60 / effectiveTempo
-    player.load(rendered.url)
-    player.setVolume(1) // bounce WAVs carry baked loudness normalization
-    try {
-      await player.start({
-        offsetSec: resumeRegionBeat * spb,
-        loopStartSec: 0,
-        // Non-loop renders include a release tail — let it play out.
-        loopEndSec: looping ? regionBeats * spb : rendered.seconds,
-        looping,
-        playbackRate: 1,
-        onEnded: () => stopPlayback({ keepSeek: true }),
-      })
-    } catch (err) { return mediaFail('element start failed', err) }
-    if (playbackTokenRef.current !== playToken) { player.stop(); return mediaFail('superseded', null, 'debug') }
-    mediaBeatMapRef.current = pos => Math.min(startBeat + pos / spb, endBeat)
-    startMediaWatch(playbackTokenRef.current)
-    updateMediaSession()
-    handoffDrone()
-    console.info('[audio] media: playing rendered bounce')
-    return true
-  }, [startMediaWatch, stopPlayback, updateMediaSession, getOrStartBounce, newMediaUrl])
-
-  // Render the current configuration's bounce in the background so the first
-  // Play is instant. Called at section load and on source/settings changes;
-  // the map dedupes and stale entries are revoked on eviction.
-  const prefetchBounce = useCallback(() => {
-    const sec = sectionRef.current
-    if (!sec || sourceRef.current === 'full') return
-    const us = userSettingsRef.current
-    const src = sourceRef.current
-    const key = bounceKeyOf({ src, us, speed: speedRef.current, region: regionRef.current, looping: isLoopingRef.current, instrumentConfigs: audioEngine.instrumentConfigs })
-    const { notes, chordsNotes, keyEvents, settings: s } = sec
-    const totalBeats = sec.totalBeats
-    const startBeat = regionRef.current.start * totalBeats
-    const endBeat = regionRef.current.end * totalBeats
-    const usesMelody = src === 'melody-drone' || src === 'melody-chords'
-    const usesChords = src === 'melody-chords' || src === 'chords' || src === 'chords-drone'
-    let midiNotes = []
-    if (usesMelody) midiNotes = midiNotes.concat(sliceRegionNotes(notes, startBeat, endBeat, us.melodyVolume, us.melodyInstrument))
-    if (usesChords) midiNotes = midiNotes.concat(sliceRegionNotes(chordsNotes, startBeat, endBeat, us.chordsVolume, us.chordsInstrument))
-    getOrStartBounce(key, {
-      notes: midiNotes,
-      keyEvents,
-      droneDb: (src === 'melody-drone' || src === 'chords-drone') ? us.droneVolume : null,
-      regionBeats: endBeat - startBeat,
-      tempo: getInternalBpm(s.tempo, s.timeSignature) * speedRef.current,
-      looping: isLoopingRef.current,
-      instrumentConfigs: audioEngine.instrumentConfigs,
-      startBeat,
-    })
-  }, [getOrStartBounce])
-
   // ── Play ─────────────────────────────────────────────────────────────────
 
   const play = useCallback(async () => {
@@ -1013,8 +648,9 @@ function EarTrainer() {
     try {
       setAudioPreparing(true)
       setError('')
-      // Unlock audio (requires user gesture on mobile)
+      // Unlock audio IMMEDIATELY inside the user gesture on mobile
       try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
+      await ensureFreshAudioContext({ latencyHint: PLAYBACK_LATENCY_HINT })
 
       const { settings: s, notes, chordsNotes, keyEvents } = sec
       const src = sourceRef.current
@@ -1027,20 +663,6 @@ function EarTrainer() {
       const regionBeats = endBeat - startBeat
       const internalTempo = getInternalBpm(s.tempo, s.timeSignature)
       const effectiveTempo = internalTempo * speedRef.current
-
-      // Preferred path: play the section through <audio> (song blob or a
-      // rendered bounce) — smooth on Bluetooth where WebAudio output is not.
-      // Any failure falls through to the WebAudio path below.
-      if (await tryStartMediaPlayback({
-        src, us, s, notes, chordsNotes, keyEvents, startBeat, endBeat,
-        resumeBeat, regionBeats, resumeFromPause, internalTempo, effectiveTempo,
-      })) {
-        playbackStateRef.current = 'playing'
-        setPlaybackState('playing')
-        return
-      }
-
-      await ensureFreshAudioContext({ latencyHint: PLAYBACK_LATENCY_HINT })
 
       if (!resumeFromPause) {
         stopPlayback({ keepPreparing: true, keepRecovery: playbackRecoveryAttemptRef.current })
@@ -1064,9 +686,7 @@ function EarTrainer() {
       // Engine-level health check INSIDE the gesture, BEFORE we bind anything:
       // rebuilds on stale (>20min)/closed/blocked contexts — including iOS
       // 'interrupted', which resume() can never escape (its promise hangs
-      // forever). Doing it here means the context we bind below is final;
-      // letting it happen inside audioEngine.start() would swap the context
-      // AFTER the GranularPlayer + scheduled notes bound to the old one.
+      // forever). Doing it here means the context we bind below is final.
       const active = await audioEngine.ensureActive({ loadDefaultPiano: false })
       if (active.contextChanged || lastRawContextRef.current !== active.rawContext) {
         lastRawContextRef.current = active.rawContext
@@ -1074,14 +694,9 @@ function EarTrainer() {
       }
       setIsInitialized(true)
 
-      // Last-resort guard: still blocked after ensureActive's rebuild. A
-      // gesture-resume already failed, so retrying resume on this context is
-      // pointless — always swap (attempt>=2) for a fresh in-gesture context.
+      // Last-resort guard: still blocked after ensureActive's rebuild.
       if (isContextBlocked(Tone.getContext().state) || isContextBlocked(Tone.getContext().rawContext?.state)) {
         await recoverAudioGraphForRetry(Math.max(2, playbackRecoveryAttemptRef.current + 1))
-        // Poll briefly before giving up: a freshly-swapped context can take
-        // a few hundred ms to flip suspended → running even after resume()
-        // resolves — throwing immediately would force a pointless re-tap.
         const unblockDeadline = Date.now() + 900
         while (Date.now() < unblockDeadline) {
           const toneBlocked = isContextBlocked(Tone.getContext().state)
@@ -1103,18 +718,10 @@ function EarTrainer() {
         setIsInitialized(true)
       }
 
-      // Rebind the audio player when the context was swapped. initialize()
-      // handles the context change itself — it stops playback, drops the
-      // stale worklet/gain and clears _loadedBuffer so the buffer is re-sent.
-      // (Nulling fields by hand here used to bypass that cleanup, leaving a
-      // worklet bound to the dead context playing into a disconnected gain.)
+      // Rebind the audio player when the context was swapped.
       if (audioPlayerRef.current && audioPlayerRef.current.audioContext !== audioContext) {
         try { await audioPlayerRef.current.initialize(audioContext) } catch (_) {}
       }
-      // Tap the reference-audio output into the silence watchdog's analyser.
-      // SAC-wrapped connect() accepts the call without wiring the underlying
-      // native nodes (the analyser then reads silence while audio plays) —
-      // connect the native nodes directly.
       try {
         const g = audioPlayerRef.current?.gainNode
         const an = audioEngine.outputAnalyser
@@ -1127,14 +734,17 @@ function EarTrainer() {
       const remainingBeats = Math.max(0, endBeat - resumeBeat)
       const resumeRegionBeat = resumeBeat - startBeat
 
-      // Ensure the selected instruments exist before scheduling (samplers
-      // fetch lazily; notes fall back to synth if a load failed)
+      // Ensure the selected instruments exist before scheduling, bounded by
+      // INSTRUMENT_WAIT_MS so a slow uncached CDN fetch never blocks Play
+      // (notes play on the fallback synth until the sampler finishes loading,
+      // and scheduleNotesAudioClock automatically picks up the sampler for
+      // subsequent notes).
       const usesMelody = src === 'melody-drone' || src === 'melody-chords'
       const usesChords = src === 'melody-chords' || src === 'chords' || src === 'chords-drone'
-      await Promise.all([
+      await withTimeout(Promise.all([
         usesMelody ? ensureInstrument(us.melodyInstrument) : null,
         usesChords ? ensureInstrument(us.chordsInstrument) : null,
-      ])
+      ]), INSTRUMENT_WAIT_MS)
 
       audioEngine.clearScheduledNotes()
       audioEngine.setLoopEnabledBeats(false, regionBeats)
@@ -1239,7 +849,7 @@ function EarTrainer() {
     } finally {
       setAudioPreparing(false)
     }
-  }, [loading, audioPreparing, playbackState, ensureFreshAudioContext, recoverAudioGraphForRetry, stopPlayback, verifyPlaybackStarted, ensureInstrument, tryStartMediaPlayback])
+  }, [loading, audioPreparing, playbackState, ensureFreshAudioContext, recoverAudioGraphForRetry, stopPlayback, verifyPlaybackStarted, ensureInstrument])
 
   useEffect(() => { playRef.current = play }, [play])
 
@@ -1275,10 +885,6 @@ function EarTrainer() {
     return () => {
       mounted = false
       stopPlayback()
-      mediaPlayerRef.current?.dispose()
-      mediaPlayerRef.current = null
-      for (const u of mediaUrlsRef.current) { try { URL.revokeObjectURL(u) } catch (_) {} }
-      mediaUrlsRef.current.clear()
     }
   }, [stopPlayback])
 
@@ -1386,13 +992,6 @@ function EarTrainer() {
   const loadSection = useCallback(async (artist, title, entry) => {
     const token = ++loadTokenRef.current
     stopPlayback()
-    // A new section invalidates every rendered blob — revoke the URLs so the
-    // memory is actually released, then drop the caches.
-    for (const u of mediaUrlsRef.current) { try { URL.revokeObjectURL(u) } catch (_) {} }
-    mediaUrlsRef.current.clear()
-    for (const e of bounceCacheRef.current.values()) e.revoked = true
-    bounceCacheRef.current.clear()
-    songBlobRef.current = null
     audioAbortRef.current?.abort()
     const controller = new AbortController()
     audioAbortRef.current = controller
@@ -1430,6 +1029,11 @@ function EarTrainer() {
         chordsNoteRange: sessionData.chordsNoteRange || { lowestNote: 36, highestNote: 72 },
       }
 
+      // Warm the section's tonic drone(s) + configured instruments in the background
+      for (const ke of tl.keyEvents || []) audioEngine.prefetchDrone(ke.key)
+      audioEngine.prefetchInstrumentBytes(userSettingsRef.current.melodyInstrument)
+      audioEngine.prefetchInstrumentBytes(userSettingsRef.current.chordsInstrument)
+
       // Pick a valid mode + source for the new section
       const caps = entry.capabilities
       const effMode = (mode === 'melody' && caps.melody) || (mode === 'harmony' && caps.chords)
@@ -1448,7 +1052,7 @@ function EarTrainer() {
         audioDbRef.current = AUDIO_DB      // reset until the new track is measured
         const ctx = Tone.getContext().rawContext
         loadSectionAudio(entry, ctx, { signal: controller.signal })
-          .then(async ({ buffer, rmsDb, peakDb, bytes }) => {
+          .then(async ({ buffer, rmsDb, peakDb }) => {
             if (token !== loadTokenRef.current) return
             // Loudness-normalize toward MIDI level: pure gain, never clips
             // (boost is capped by the track's own sample-peak headroom).
@@ -1456,23 +1060,6 @@ function EarTrainer() {
               AUDIO_TARGET_RMS_DB - rmsDb,
               AUDIO_MAX_BOOST_DB,
               AUDIO_PEAK_CEIL_DB - peakDb)
-            const gainLin = Math.pow(10, audioDbRef.current / 20)
-            // Where el.volume is writable (Android/desktop) the element plays
-            // the original MP3 — zero encode, ~10x less memory than a WAV
-            // bake. el.volume clamps at 1.0, so a needed BOOST still requires
-            // the baked WAV. On iOS (el.volume ignored) the gain always goes
-            // into the WAV samples — chunked so it can't freeze the UI.
-            let urls
-            let mp3Url = null
-            if (mediaVolumeWritable && bytes && gainLin <= 1) {
-              mp3Url = newMediaUrl(new Blob([bytes], { type: 'audio/mpeg' }))
-              urls = new Map([[1, mp3Url]])
-            } else {
-              const wav = await encodeWavPcm16Async(buffer, gainLin)
-              if (!wav || token !== loadTokenRef.current) return
-              urls = new Map([[1, newMediaUrl(wav)]])
-            }
-            songBlobRef.current = { buffer, gainLin, mp3Url, urls }
             const player = new GranularPlayer()
             player.loadBuffer(buffer)
             try { await player.initialize(ctx) } catch (_) { /* fallback path still works */ }
@@ -1522,21 +1109,6 @@ function EarTrainer() {
     // cannot appear in its own deps (TDZ) — its inputs are stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopPlayback, mode])
-
-  // Prefetch the current configuration's bounce in the background so Play is
-  // instant — the cache dedupes, so this only renders genuinely new configs.
-  // Debounced: userSettings changes per slider tick, and each render is a
-  // multi-second offline render — without the settle window every drag
-  // spawned a fresh render and thrashed the CPU on mobile. Also skipped
-  // while playing: a bounce competing with live media wastes cycles.
-  useEffect(() => {
-    if (loading || !session) return
-    const t = window.setTimeout(() => {
-      if (playbackStateRef.current === 'playing') return
-      prefetchBounce()
-    }, 600)
-    return () => window.clearTimeout(t)
-  }, [prefetchBounce, source, regionStart, regionEnd, speed, isLooping, userSettings, session, loading])
 
   // Initial catalog load + auto-select first section
   useEffect(() => {

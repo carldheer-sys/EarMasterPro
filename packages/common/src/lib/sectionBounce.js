@@ -96,10 +96,14 @@ function scheduleDroneVoices(ctx, freq, t0, stopAt, dest) {
 
 async function buildInstrument(ctx, name, config, midiGain, rawCtx) {
   const def = SYNTH_TYPES[name]
-  if (def) {
-    const synth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: def.oscillator,
-      envelope: def.envelope,
+  if (def && !SampleLibrary[name]) {
+    const synth = new Tone.PolySynth({
+      voice: Tone.Synth,
+      maxPolyphony: 256,
+      options: {
+        oscillator: def.oscillator,
+        envelope: def.envelope,
+      },
       context: ctx,
     })
     const chorus = new Tone.Chorus({ frequency: 1.2, delayTime: 4, depth: 0.5, context: ctx }).start()

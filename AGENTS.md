@@ -48,25 +48,38 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   context (iOS leaks live contexts otherwise).
 - **`isContextBlocked()`** treats `suspended`/`interrupted`/`closed` as dead —
   `play()` must recover inside the user gesture before scheduling.
-- Mastering chain is `midiGain → compressor → limiter → destination` plus a
-  parallel reverb send. **No distortion/waveshaper** — summed voices clipped it.
-- Per-layer drone nodes go in `droneGains`/`droneLfos`/`droneSynths` —
-  `stopDrone()` disposes all of them. Adding a node without tracking it = leak.
-- **The drone is a baked stereo loop** (`droneBaker.js`): ~10s AudioBuffer
-  rendered via OfflineAudioContext per octave band, played as a looping
-  `ToneBufferSource` retuned with `playbackRate` (±6 st), swelling in over
-  ~0.5s (gain `setTargetAtTime`, τ 0.15). Sources are tracked in
-  `droneSources`, their gains in `droneGains`; `_droneEpoch` guards
-  in-flight renders against zombie attaches. `droneVoicingSpec()` is the
-  single voicing definition shared with the bounce's inline render — never
-  fork the constants. `offlineRenderProbe()` gates `droneLoopPromise`: a
-  failed probe (or a silent/failed bake — logged, evicted for retry) sends
-  the live path to `_scheduleDroneSynthFallback` (4-synth pad, logs once).
-  Loop buffers live in a module-level cache — they are context-agnostic
-  and must NOT be disposed on rebuild.
-- `loadInstrument` dedupes concurrent loads via `instrumentLoads`; sample
-  ArrayBuffers are cached module-level (`sampleArrayBufferCache`) and re-decoded
-  per context epoch.
+- **Mastering chain is `midiGain → compressor → limiter → destination`** —
+  no distortion/waveshaper (summed voices clipped it) and no `Tone.Reverb`
+  convolver (`Tone.Reverb` ran an `OfflineContext` render inside
+  `initialize()`, stalling gesture activation, and taxed the mobile audio
+  render thread over Bluetooth). Matches Sonofield (`reverbSend = 0`) and
+  SingMasterPro.
+- **Sonofield SF2 sounds (`public/samples/`)**: extracted from
+  `Sonofield_REA/free.sf2` via `scripts/extract-sonofield-samples.py`:
+  1. **Drone (`public/samples/sonofield-drone/<C..B>.mp3`)**: 12 chromatic
+     stereo loops (C3–B3, ~14s pre-crossfaded loop with a 0.25s guard band so
+     looping `[0.1s .. 14.1s]` stays strictly inside the file and never
+     crosses MP3 encoder padding). Cached at module scope in
+     `droneArrayBufferCache` + `droneAudioBufferCache` (`tonicToDroneStem`).
+     `loadSection` warms all `keyEvents` tonics via `prefetchDrone(tonic)`;
+     `scheduleDroneNotes` starts synchronously in 0ms when cached, swelling
+     in over ~0.45s (`setTargetAtTime`, τ=0.15) and releasing over τ=0.08s
+     on stop/key change. Falls back to `droneBaker.js` → 4-synth pad if
+     unloaded.
+  2. **Synth (`public/samples/sonofield-synth/<G2..E6>.mp3`)**: 16 stereo
+     minor-third multisample zones (MIDI 43–88, sustain loop unrolled to 4s,
+     per-zone SF2 centibel attenuation baked in) routed through a 20%
+     `Tone.Chorus` send (`chorusSend=200`). `_initializeInner` builds a
+     synchronous `PolySynth` fallback in `synths['synth']` so `getPlayer` is
+     non-null in 0ms while `samplers['synth']` decodes (~40ms locally).
+- **Context-agnostic `AudioBuffer` caching (`sampleAudioBufferCache`)**:
+  `loadInstrument` caches both raw `ArrayBuffer`s (`sampleArrayBufferCache`)
+  and decoded `AudioBuffer`s (`sampleAudioBufferCache`) at module scope,
+  decoding in parallel batches (`DECODE_CONCURRENCY = 8`) with 6s fetch
+  timeouts. Context rebuilds (`swapToneContext`) reuse already-decoded
+  `AudioBuffer`s in <1ms without re-fetching or re-decoding. Dense sample
+  maps (`piano`, `guitar-acoustic`, `cello`) are thinned to minor-third
+  zones (28/13/13 files) and cached cache-first in `public/sw.js`.
 - `window.audioEngine` is exposed for CDP debugging.
 - **`Tone.context.rawContext` is a `standardized-audio-context` WRAPPER, not a
   `BaseAudioContext`** — `new AudioWorkletNode(wrapper)` throws. Unwrap via
@@ -80,81 +93,24 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   whose clock advances in bursts long enough to starve a 0.4s window.
 - **Latency hint is always `'playback'`** (`PLAYBACK_LATENCY_HINT`) — never
   retry with `'interactive'`: its small output buffer underruns on Bluetooth.
-- **Watchdog rebuilds need 2 consecutive dead ticks** — a single stalled-clock
-  window is normal on Bluetooth and must not tear down the graph (a rebuild is
-  an audible stop). `interrupted` states are neutral ticks (bounded at 15):
-  the statechange auto-heal handles them; a rebuilt context is born
-  interrupted too.
-- **Section playback goes through `<audio>`, not the WebAudio output path** —
-  iOS + Bluetooth underruns the AudioContext render thread (~1s dropouts)
-  while the OS media pipeline buffers deep. `MediaSongPlayer`
-  (`mediaPlayback.js`) plays rendered WAV blobs on two A/B elements for
-  gapless region loops; `sectionBounce.js` renders the whole mix (notes +
-  inline drone-voicing segments + verbatim mastering chain) on an explicit
-  `new Tone.OfflineContext(...)` — every node gets `{ context: ctx }`
-  (`PolySynth` propagates it to voices; `toDestination()` binds via the
-  node's own context) and the ctx is `dispose()`d after render. **Never
-  `Tone.Offline(callback)`**: it swaps the global `Tone.context` for the
-  callback's whole duration including `await`s — nodes built meanwhile
-  (instruments, paused-drone) bind to the dead offline context and render
-  into a buffer nobody hears. The drone is built from `droneVoicingSpec`
-  inside the render, not from the shared loop cache, so a failed loop bake
-  can't strip it from the bounce.
-  'full' plays the loudness-normalized song WAV (`songBlobRef`) — under 0.5×,
-  a pre-stretched OLA file since iOS can't preserve pitch below
-  `playbackRate` 0.5. WebAudio stays only for live keyboard notes and as the
-  fallback when a render/element fails — never play both at once. The
-  `offlineRenderProbe` gates bounces, and a rendered buffer peaking below
-  −60dBFS is evicted + treated as a failure (a silent render would
-  otherwise "play" forever). Media-path failures log `[audio] media path:
-  <reason> — WebAudio fallback`. `bounceSection` and `prime()` get start
-  timeouts so a stalled `startRendering`/`play()` fails over instead of
-  hanging Play; `prefetchBounce` is debounced (~600ms, skipped while
-  playing) so settings drags don't spawn a render per tick.
-- **Loudness is baked into the WAV samples** — `el.volume` is read-only on
-  iOS, so `encodeWavPcm16` applies the gain while interleaving (peak-safe,
-  hard-clipped). Where `el.volume` IS writable (`mediaVolumeWritable`
-  probe), 'full' instead plays the source MP3 bytes + per-file
-  `MediaSongPlayer.setVolume` — skipping the multi-MB WAV bake. Song WAVs
-  hit `AUDIO_TARGET_RMS_DB` (−16); rendered mixes hit
-  `BOUNCE_TARGET_RMS_DB` (−17), clamped by `AUDIO_PEAK_CEIL_DB` — the
-  limiter leaves little headroom on loud renders, which is correct.
-  Bounce results are cached by a JSON key of every audible input
-  (`bounceKeyOf`); revoking a URL the element is playing is forbidden.
-- **Encoders/stretchers must yield on song-length buffers** —
-  `encodeWavPcm16`/`stretchBufferOla` are synchronous loops and freeze the
-  main thread for seconds on multi-minute audio; use
-  `encodeWavPcm16Async`/`stretchBufferOlaAsync` (chunked `await`s) for
-  song/section-length work. The sync versions are for ≤ a few seconds
-  (prime buffers, tests).
-- **Media cursor runs on RAF, not the stall-watch interval** —
-  `startMediaWatch` keeps stall detection at 100ms but a RAF loop
-  interpolates `player.positionSec` between samples (capped +150ms ahead)
-  so the playhead doesn't jump at 10fps; both are cancelled on stop/pause.
-- **A media pause keeps the drone alive like a WebAudio pause** — the baked
-  drone freezes with the element, so `pausePlayback` voices a live drone at
-  the paused key (`startPausedDrone`, ramped in over ~0.5s). The next media
-  `start` releases it only AFTER `player.start()` resolves (`handoffDrone`)
-  so its 0.25s tail overlaps the baked voice — never stop it in `cleanup()`
-  before the element is playing, that re-opens the resume gap.
-  `mediaSession.playbackState` is `'paused'` while paused so the
-  Now Playing/BT route stays claimed.
-- **Instrument volumes live in `INSTRUMENT_CONFIGS`/`SYNTH_TYPES` only** —
-  the live engine and `buildInstrument` in sectionBounce read the same
-  tables; never tune one path without the other. Drone level is
-  `volumeDb + 3dB` in both `_startDroneLoop` and the bounce — a sine bed
-  reads far quieter than pitched voices at equal RMS.
-- **`MediaSongPlayer` seeks only after the element is ready** — setting
-  `currentTime` before readyState≥2 (or before `_ensureReady`'s `el.load()`)
-  can be silently dropped → playback restarts from 0 on pause/resume.
-  `pause()` pauses BOTH A/B elements — a pre-started standby would otherwise
-  keep sounding.
-- **`MediaSongPlayer.prime()` must run inside the user gesture** — a bounce
-  render can outlive user-activation; playing a 1-frame silent WAV once
-  unlocks both elements for the session.
-- **PianoRoll canvas is viewport-sized** and follows scroll via a transform in
-  the RAF loop — never size it to `gridWidth × dpr` (exceeds iOS canvas limits
-  and repaints the whole grid per scroll tick).
+- **Watchdog rebuilds need 2 consecutive dead ticks and never rebuild an
+  advancing clock** — on Bluetooth A2DP the output clock advances in bursts
+  and analyser samples can lag behind scheduled audio; never tear down a
+  context whose `rawContext.currentTime` and `Transport.ticks` are advancing.
+  `getOutputLevel()` uses `getByteTimeDomainData` (with `outputAnalyser`
+  pulled via `silentKeepalive`) because `getFloatTimeDomainData` returns
+  zeros on iOS Safari.
+- **`play()` unlocks the `AudioContext` first inside the user gesture** —
+  `ensureFreshAudioContext` + `audioEngine.ensureActive` run before any
+  instrument warmup, and `ensureInstrument` in `play()` is bounded by
+  `INSTRUMENT_WAIT_MS` (350ms) so a slow uncached CDN fetch never blocks
+  playback start or burns transient user activation.
+- **PianoRoll canvas is viewport-sized and redraws imperatively on scroll** —
+  `scrollLeftRef` + `drawCanvasRef` redraw the visible slice without React
+  `setScrollLeft` state updates (which previously caused 60 React re-renders
+  per second during playback auto-scroll). Grid bar/division lines are
+  clipped to `[viewportStartBeat - 1, viewportEndBeat + 1]`, and note labels
+  use crisp `strokeText` outlines instead of software `shadowBlur`.
 - `GranularPlayer` reuses its AudioWorkletNode across starts — buffer data is
   posted only when the AudioBuffer object changes. `catalog.js` caches MP3
   bytes + decoded buffers per context.

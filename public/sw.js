@@ -78,16 +78,19 @@ self.addEventListener('fetch', event => {
     return
   }
 
-  // Immutable-per-build assets: hashed bundles, icons, catalog binaries.
+  // Immutable-per-build assets: hashed bundles, icons, catalog binaries,
+  // local Sonofield samples (/samples/*), and immutable CDN instrument samples.
   const isImmutable = APP_SHELL.includes(url.pathname) ||
     url.pathname.startsWith('/assets/') ||
     url.pathname.startsWith('/icons/') ||
-    url.pathname.startsWith('/catalog/')
+    url.pathname.startsWith('/catalog/') ||
+    url.pathname.startsWith('/samples/') ||
+    url.pathname.includes('/tonejs-instruments/samples/')
   if (isImmutable) {
     event.respondWith(cacheFirst(request))
     return
   }
 
-  // Everything else (e.g. CDN sample fetches): network-first, cache fallback
+  // Everything else: network-first, cache fallback
   event.respondWith(networkFirst(request))
 })

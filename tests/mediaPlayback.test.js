@@ -7,6 +7,9 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
+import { existsSync, statSync, readFileSync } from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 
 // tone's ESM build doesn't resolve in node, and nothing in these code paths
 // evaluates it at module scope (bounceSection returns before touching Tone
@@ -15,6 +18,10 @@ vi.mock('tone', () => ({}))
 
 import { encodeWavPcm16, encodeWavPcm16Async, stretchBufferOla, stretchBufferOlaAsync, MediaSongPlayer } from '../packages/common/src/lib/mediaPlayback.js'
 import { bounceSection } from '../packages/common/src/lib/sectionBounce.js'
+import SampleLibrary from '../packages/common/src/lib/Tonejs-Instruments.js'
+import { INSTRUMENT_OPTIONS, SYNTH_TYPES, tonicToDroneStem } from '../packages/common/src/lib/audioEngine.js'
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 // Duck-typed stereo buffer — the shape encodeWavPcm16/stretchBufferOla consume.
 function fakeBuffer(channels, sampleRate = 44100) {
@@ -232,5 +239,53 @@ describe('bounceSection graceful degradation', () => {
   it('returns null for an empty region', async () => {
     expect(await bounceSection({ regionBeats: 0 })).toBeNull()
     expect(await bounceSection({ regionBeats: -2 })).toBeNull()
+  })
+})
+
+describe('Sonofield SF2 extracted samples & instrument maps', () => {
+  it('ships all 16 Sonofield Synth stereo zone MP3s matching SampleLibrary.synth', () => {
+    const synthMap = SampleLibrary.synth
+    expect(synthMap).toBeDefined()
+    const notes = Object.keys(synthMap)
+    expect(notes.length).toBe(16)
+    for (const note of notes) {
+      const file = path.join(repoRoot, 'public', 'samples', 'sonofield-synth', synthMap[note])
+      expect(existsSync(file)).toBe(true)
+      expect(statSync(file).size).toBeGreaterThan(20000)
+    }
+  })
+
+  it('ships all 12 chromatic Sonofield Drone stereo loop MP3s and maps enharmonic tonics', () => {
+    const tonics = ['C', 'C#', 'Db', 'D', 'D#', 'Eb', 'E', 'F', 'F#', 'Gb', 'G', 'G#', 'Ab', 'A', 'A#', 'Bb', 'B']
+    for (const t of tonics) {
+      const stem = tonicToDroneStem(t)
+      const file = path.join(repoRoot, 'public', 'samples', 'sonofield-drone', `${stem}.mp3`)
+      expect(existsSync(file)).toBe(true)
+      expect(statSync(file).size).toBeGreaterThan(100000)
+    }
+    expect(tonicToDroneStem('Db')).toBe('Cs')
+    expect(tonicToDroneStem('Eb')).toBe('Ds')
+    expect(tonicToDroneStem('Gb')).toBe('Fs')
+    expect(tonicToDroneStem('Ab')).toBe('Gs')
+    expect(tonicToDroneStem('Bb')).toBe('As')
+  })
+
+  it('every instrument option has a valid map and thinned sample count for fast loading', () => {
+    for (const inst of INSTRUMENT_OPTIONS) {
+      const hasMap = Boolean(SampleLibrary[inst] && Object.keys(SampleLibrary[inst]).length > 0)
+      const hasSynth = Boolean(SYNTH_TYPES[inst])
+      expect(hasMap || hasSynth).toBe(true)
+      if (hasMap) {
+        // Minor-third zoning keeps every sampled instrument at <= 28 files
+        expect(Object.keys(SampleLibrary[inst]).length).toBeLessThanOrEqual(28)
+      }
+    }
+  })
+
+  it('public/sw.js preserves __SW_VERSION__ and caches /samples/ + CDN samples cache-first', () => {
+    const sw = readFileSync(path.join(repoRoot, 'public', 'sw.js'), 'utf8')
+    expect(sw).toContain('earmaster-pro-__SW_VERSION__')
+    expect(sw).toContain("url.pathname.startsWith('/samples/')")
+    expect(sw).toContain("url.pathname.includes('/tonejs-instruments/samples/')")
   })
 })

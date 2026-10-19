@@ -5,21 +5,48 @@ import { droneBandIndex, droneBandRef, droneLoopPromise } from './droneBaker'
 
 // MIDI note number → note name (middle C = C4 = 60)
 const MIDI_NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+const DRONE_FILE_STEMS = ['C', 'Cs', 'D', 'Ds', 'E', 'F', 'Fs', 'G', 'Gs', 'A', 'As', 'B']
 
-// Module-level cache: instrument name → Map(noteName → ArrayBuffer)
-// Survives AudioEngine.dispose() and context rebuilds so we never re-fetch
-// samples from the network after the first load.
+// Module-level caches survive AudioEngine.dispose() and context rebuilds:
+// 1. sampleArrayBufferCache: instrument → Map(noteName → ArrayBuffer)
+// 2. sampleAudioBufferCache: instrument → Map(noteName → AudioBuffer)
+//    AudioBuffers in Web Audio are context-independent, so a context rebuild
+//    reuses already-decoded buffers in <1ms instead of re-decoding 16-28 MP3s.
 const sampleArrayBufferCache = {}
+const sampleAudioBufferCache = {}
 const SAMPLE_BASE_URL = 'https://nbrosowsky.github.io/tonejs-instruments/samples/'
-const FETCH_CONCURRENCY = 6
+const SONOFIELD_SYNTH_BASE_URL = '/samples/sonofield-synth/'
+const SONOFIELD_DRONE_BASE_URL = '/samples/sonofield-drone/'
+const FETCH_CONCURRENCY = 8
+const DECODE_CONCURRENCY = 8
+const SAMPLE_FETCH_TIMEOUT_MS = 6000
+
+// Module-level caches for the 12 Sonofield stereo drone loops (/samples/sonofield-drone/*.mp3)
+const droneArrayBufferCache = new Map() // stem → ArrayBuffer
+const droneAudioBufferCache = new Map() // stem → AudioBuffer
+const droneLoadPromises = new Map()     // stem → Promise<AudioBuffer|null>
+
+export function tonicToDroneStem(tonic) {
+  const idx = MIDI_NOTE_NAMES.indexOf(normalizeKeyName(tonic))
+  return DRONE_FILE_STEMS[idx >= 0 ? idx : 9]
+}
+
+function fetchWithTimeout(url, timeoutMs = SAMPLE_FETCH_TIMEOUT_MS) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null
+  return fetch(url, controller ? { signal: controller.signal } : undefined)
+    .finally(() => { if (timer) clearTimeout(timer) })
+}
 
 // Generated (non-sampled) instrument definitions, created as Tone.PolySynths.
-// `filter` (Hz) adds a lowpass on the synth's output for a softer pad tone.
+// Note: 'synth' ALSO has a 16-zone Sonofield SF2 sample map in SampleLibrary;
+// its SYNTH_TYPES entry serves as the instant zero-latency fallback while the
+// local samples decode (or in headless/unit-test environments).
 export const SYNTH_TYPES = {
   synth: {
     oscillator: { type: 'triangle' },
-    envelope: { attack: 0.005, decay: 0.1, sustain: 0.4, release: 1 },
-    volume: -6,   // triangle is far sparser than the fatsawtooth pad at equal gain
+    envelope: { attack: 0.005, decay: 0.1, sustain: 0.4, release: 0.3 },
+    volume: -6,
   },
   pad: {
     oscillator: { type: 'fatsawtooth', count: 3, spread: 22 },
@@ -29,10 +56,10 @@ export const SYNTH_TYPES = {
   },
 }
 
-// Per-instrument defaults for the sample-based sounds (from the previous app
-// version). Volume compensates for each sample set's loudness.
+// Per-instrument defaults for the sample-based sounds.
+// 'synth' uses the extracted Sonofield SF2 stereo multisamples (~0.3s release).
 export const INSTRUMENT_CONFIGS = {
-  synth: { volume: -6 },
+  synth: { attack: 0.005, release: 0.3, volume: -4 },
   pad: { volume: -10 },
   piano: { attack: 0.02, release: 1, volume: -6 },
   violin: { attack: 0.1, release: 1.2, volume: -4 },
@@ -273,37 +300,6 @@ class AudioEngine {
 
       Tone.getContext().lookAhead = 0.1
 
-      // MIDI-only gain node → mastering FX chain → Destination.
-      //   midiGain → compressor → limiter → destination
-      //   midiGain → reverbSend (−14 dB) → reverb (100% wet) → destination
-      // The limiter is the last stage so summed voices can't clip the output.
-      // refAudioPlayer connects directly to Destination, so setVolume()
-      // on this node only affects MIDI, never the audio reference track.
-      this.midiGain = new Tone.Volume(-3)
-      this.fxCompressor = new Tone.Compressor({ threshold: -18, ratio: 2.5, attack: 0.01, release: 0.2 })
-      this.fxLimiter = new Tone.Limiter(-1.5)
-      this.fxReverbSend = new Tone.Gain(Math.pow(10, -14 / 20))
-      this.fxReverb = new Tone.Reverb({ decay: 1.6, preDelay: 0.01, wet: 1 })
-      this.midiGain.connect(this.fxCompressor)
-      this.fxCompressor.connect(this.fxLimiter)
-      this.fxLimiter.toDestination()
-      this.midiGain.connect(this.fxReverbSend)
-      this.fxReverbSend.connect(this.fxReverb)
-      this.fxReverb.toDestination()
-      // The convolver builds its impulse response asynchronously
-      try { await this.fxReverb.ready } catch (_) {}
-
-      // Output tap for the silence watchdog: an AnalyserNode works as a sink
-      // (its output stays unconnected) — it analyzes whatever flows into it.
-      try {
-        this.outputAnalyser = Tone.getContext().createAnalyser()
-        this.outputAnalyser.fftSize = 256
-        this.outputAnalyser.smoothingTimeConstant = 0
-        this.midiGain.connect(this.outputAnalyser)
-      } catch (_) {
-        this.outputAnalyser = null
-      }
-
       // Silent keepalive: a looping *silent buffer source* through a 0-gain
       // node keeps the render graph nominally active. (A bare Gain node with
       // no input does nothing — iOS would still suspend an idle context.)
@@ -319,8 +315,41 @@ class AudioEngine {
         try { this.silentSource.start() } catch (_) {}
       }
 
-      if (options.loadDefaultPiano !== false) {
-        await this.loadInstrument('piano', { attack: 0.02, release: 1, volume: -6 })
+      // MIDI-only gain node → mastering FX chain → Destination.
+      //   midiGain → compressor → limiter → destination
+      // Matches Sonofield (reverbSend=0) and SingMasterPro: no ConvolverNode
+      // reverb (which previously ran an OfflineContext render inside
+      // initialize() and taxed the mobile audio render thread over Bluetooth).
+      // The limiter is the last stage so summed voices can't clip the output.
+      this.midiGain = new Tone.Volume(-3)
+      this.fxCompressor = new Tone.Compressor({ threshold: -18, ratio: 2.5, attack: 0.01, release: 0.2 })
+      this.fxLimiter = new Tone.Limiter(-1.5)
+      this.midiGain.connect(this.fxCompressor)
+      this.fxCompressor.connect(this.fxLimiter)
+      this.fxLimiter.toDestination()
+
+      // Output tap for the silence watchdog: routed into silentKeepalive
+      // (0-gain → destination) so WebKit's pull-based audio graph always
+      // pulls through the AnalyserNode.
+      try {
+        this.outputAnalyser = Tone.getContext().createAnalyser()
+        this.outputAnalyser.fftSize = 256
+        this.outputAnalyser.smoothingTimeConstant = 0
+        this.midiGain.connect(this.outputAnalyser)
+        const anNative = this.outputAnalyser?._nativeAudioNode ?? this.outputAnalyser
+        const kaNative = this.silentKeepalive?._nativeAudioNode ?? this.silentKeepalive
+        if (anNative && kaNative) anNative.connect?.(kaNative)
+      } catch (_) {
+        this.outputAnalyser = null
+      }
+
+      // Always build the lightweight synth fallback synchronously so
+      // getPlayer('synth') is non-null in 0ms while the Sonofield SF2
+      // stereo samples load (or in headless/unit tests).
+      this._buildSynthVoice('synth', this.instrumentConfigs['synth'] || INSTRUMENT_CONFIGS.synth)
+
+      if (options.loadDefaultPiano === true) {
+        await this.loadInstrument('piano', INSTRUMENT_CONFIGS.piano)
       }
 
       Tone.getTransport().bpm.value = 120
@@ -353,7 +382,7 @@ class AudioEngine {
 
   async _ensureActiveInner(options = {}) {
     const latencyHint = options.latencyHint || 'playback'
-    const loadDefaultPiano = options.loadDefaultPiano !== false
+    const loadDefaultPiano = options.loadDefaultPiano === true
     const rawBefore = Tone.getContext()?.rawContext
     const toneState = Tone.getContext()?.state
     const rawState = rawBefore?.state
@@ -492,18 +521,36 @@ class AudioEngine {
 
   /**
    * RMS of the signal tapped off midiGain (see outputAnalyser in initialize).
-   * ~0 means the render graph is silent — used by the playback watchdog to
-   * catch iOS "running but no sound" contexts after session interruptions.
+   * Uses getByteTimeDomainData first because getFloatTimeDomainData returns
+   * zeros on iOS Safari (verified in SingMasterPro). Falls back to float
+   * domain for mock/test contexts.
    */
   getOutputLevel() {
     const a = this.outputAnalyser
     if (!a) return 0
     try {
-      const buf = new Float32Array(a.fftSize)
-      a.getFloatTimeDomainData(buf)
-      let sum = 0
-      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i]
-      return Math.sqrt(sum / buf.length)
+      const n = a.fftSize || 256
+      if (!this._analyserBytes || this._analyserBytes.length !== n) {
+        this._analyserBytes = new Uint8Array(n)
+      }
+      if (typeof a.getByteTimeDomainData === 'function') {
+        a.getByteTimeDomainData(this._analyserBytes)
+        let sum = 0
+        for (let i = 0; i < n; i++) {
+          const v = (this._analyserBytes[i] - 128) / 128
+          sum += v * v
+        }
+        const rms = Math.sqrt(sum / n)
+        if (rms > 0) return rms
+      }
+      if (typeof a.getFloatTimeDomainData === 'function') {
+        const buf = new Float32Array(n)
+        a.getFloatTimeDomainData(buf)
+        let sum = 0
+        for (let i = 0; i < n; i++) sum += buf[i] * buf[i]
+        return Math.sqrt(sum / n)
+      }
+      return 0
     } catch (_) {
       return 0
     }
@@ -564,35 +611,43 @@ class AudioEngine {
     }
   }
 
+  _buildSynthVoice(instrument, config = {}) {
+    const def = SYNTH_TYPES[instrument]
+    if (!def || !this.midiGain) return null
+    if (this.synths[instrument]) {
+      if (config.volume !== undefined) this.synths[instrument].volume.value = config.volume
+      return this.synths[instrument]
+    }
+    const synth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: def.oscillator,
+      envelope: def.envelope,
+    })
+    const chorus = new Tone.Chorus(1.2, 4, 0.5).start()
+    chorus.wet.value = 0.2
+    chorus.connect(this.midiGain)
+    if (def.filter) {
+      const filter = new Tone.Filter(def.filter, 'lowpass').connect(chorus)
+      synth.connect(filter)
+      synth.filterNode = filter
+    } else {
+      synth.connect(chorus)
+    }
+    synth.chorusNode = chorus
+    synth.volume.value = config.volume !== undefined ? config.volume : def.volume
+    this.synths[instrument] = synth
+    return synth
+  }
+
   async _loadInstrumentInner(instrument, config) {
     if (SYNTH_TYPES[instrument]) {
-      if (this.synths[instrument]) {
+      this._buildSynthVoice(instrument, config)
+      // Purely synthesized instruments (e.g. 'pad') stop here; 'synth' also
+      // has a 16-zone Sonofield SF2 sample map in SampleLibrary and upgrades
+      // to a Tone.Sampler once its local stereo samples finish decoding.
+      if (!SampleLibrary[instrument]) {
         this.applyInstrumentConfig(instrument, config)
         return
       }
-
-      const def = SYNTH_TYPES[instrument]
-      const synth = new Tone.PolySynth(Tone.Synth, {
-        oscillator: def.oscillator,
-        envelope: def.envelope,
-      })
-      // Sonofield-style ~20% chorus send: widens the generated voices;
-      // sampled instruments keep their real timbre + the reverb send.
-      const chorus = new Tone.Chorus(1.2, 4, 0.5).start()
-      chorus.wet.value = 0.2
-      chorus.connect(this.midiGain)
-      if (def.filter) {
-        const filter = new Tone.Filter(def.filter, 'lowpass').connect(chorus)
-        synth.connect(filter)
-        synth.filterNode = filter
-      } else {
-        synth.connect(chorus)
-      }
-      synth.chorusNode = chorus
-
-      synth.volume.value = config.volume !== undefined ? config.volume : def.volume
-      this.synths[instrument] = synth
-      return
     }
 
     if (this.samplers[instrument]) {
@@ -609,37 +664,73 @@ class AudioEngine {
       return
     }
 
-    // Ensure all samples are fetched and cached as ArrayBuffers
-    const cache = await this._ensureSampleBytes(instrument)
-    const entries = Object.entries(noteMap)
+    if (!sampleAudioBufferCache[instrument]) {
+      sampleAudioBufferCache[instrument] = new Map()
+    }
+    const decodedCache = sampleAudioBufferCache[instrument]
+    const noteKeys = Object.keys(noteMap)
+    const missingNotes = noteKeys.filter(n => !decodedCache.has(n))
 
-    // Decode cached ArrayBuffers with the current AudioContext
-    // slice(0) creates a copy because decodeAudioData detaches the buffer
-    const decodedUrls = {}
-    for (const [note] of entries) {
-      const arrayBuffer = cache.get(note)
-      if (arrayBuffer) {
-        try {
-          const decoded = await Tone.getContext().rawContext.decodeAudioData(arrayBuffer.slice(0))
-          decodedUrls[note] = decoded
-        } catch (e) {
-          console.warn(`[AudioEngine] Failed to decode ${instrument}/${note}:`, e.message)
+    if (missingNotes.length > 0) {
+      const byteCache = await this._ensureSampleBytes(instrument)
+      const rawCtx = Tone.getContext()?.rawContext
+      if (rawCtx) {
+        for (let i = 0; i < missingNotes.length; i += DECODE_CONCURRENCY) {
+          const batch = missingNotes.slice(i, i + DECODE_CONCURRENCY)
+          await Promise.all(batch.map(async (note) => {
+            if (decodedCache.has(note)) return
+            const arrayBuffer = byteCache.get(note)
+            if (!arrayBuffer) return
+            try {
+              const decoded = await rawCtx.decodeAudioData(arrayBuffer.slice(0))
+              decodedCache.set(note, decoded)
+            } catch (e) {
+              console.warn(`[AudioEngine] Failed to decode ${instrument}/${note}:`, e.message)
+            }
+          }))
         }
       }
     }
 
-    // Create sampler from pre-decoded AudioBuffers — no network fetching needed
-    const sampler = new Tone.Sampler({ urls: decodedUrls })
-    sampler.connect(this.midiGain)
+    const decodedUrls = {}
+    for (const note of noteKeys) {
+      const buf = decodedCache.get(note)
+      if (buf) decodedUrls[note] = buf
+    }
+
+    if (Object.keys(decodedUrls).length === 0) {
+      this.applyInstrumentConfig(instrument, config)
+      return
+    }
+
+    if (!this.midiGain) return
+
+    // Create sampler from pre-decoded AudioBuffers — synchronous, zero network
+    const sampler = new Tone.Sampler({
+      urls: decodedUrls,
+      attack: config.attack ?? INSTRUMENT_CONFIGS[instrument]?.attack ?? 0.005,
+      release: config.release ?? INSTRUMENT_CONFIGS[instrument]?.release ?? 0.3,
+    })
+    if (instrument === 'synth') {
+      // Sonofield Preset 1 'Synth' global zone: chorusSend = 200 (20% wet)
+      const chorus = new Tone.Chorus(1.2, 4, 0.5).start()
+      chorus.wet.value = 0.2
+      chorus.connect(this.midiGain)
+      sampler.connect(chorus)
+      sampler.chorusNode = chorus
+      if (!this._loggedSonofieldSynth) {
+        this._loggedSonofieldSynth = true
+        console.info('[audio] synth: Sonofield SF2 stereo multisamples loaded')
+      }
+    } else {
+      sampler.connect(this.midiGain)
+    }
     this.samplers[instrument] = sampler
     this.applyInstrumentConfig(instrument, config)
   }
 
   // Fetch (but don't decode) an instrument's samples into the module-level
-  // ArrayBuffer cache + SW cache. Separated from sampler construction so a
-  // configured instrument can be warmed in the background — first play
-  // then only decodes, and a later offline session finds bytes cached.
-  // Deduped per instrument: a load joining an in-flight warmup shares it.
+  // ArrayBuffer cache + SW cache. Deduped per instrument.
   _ensureSampleBytes(instrument) {
     const noteMap = SampleLibrary[instrument]
     if (!noteMap) return Promise.resolve(new Map())
@@ -655,18 +746,21 @@ class AudioEngine {
     }
     const cache = sampleArrayBufferCache[instrument]
     const uncached = Object.keys(noteMap).filter((note) => !cache.has(note))
+    const baseUrl = instrument === 'synth'
+      ? SONOFIELD_SYNTH_BASE_URL
+      : SAMPLE_BASE_URL + instrument + '/'
 
     if (uncached.length > 0) {
-      console.log(`[AudioEngine] Fetching ${uncached.length} samples for ${instrument}...`)
-      // Fetch with limited concurrency to avoid ERR_INSUFFICIENT_RESOURCES
       for (let i = 0; i < uncached.length; i += FETCH_CONCURRENCY) {
         const batch = uncached.slice(i, i + FETCH_CONCURRENCY)
         await Promise.all(batch.map(async (note) => {
           if (cache.has(note)) return
-          const url = SAMPLE_BASE_URL + instrument + '/' + noteMap[note]
+          const url = baseUrl + noteMap[note]
           try {
-            const response = await fetch(url)
+            const response = await fetchWithTimeout(url)
             if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            const ct = response.headers?.get?.('content-type') || ''
+            if (ct.includes('text/html')) throw new Error('SPA HTML fallback')
             const buffer = await response.arrayBuffer()
             cache.set(note, buffer)
           } catch (e) {
@@ -678,31 +772,25 @@ class AudioEngine {
     return cache
   }
 
-  // Fire-and-forget sample warmup for a configured instrument — no-op for
-  // generated synths and unknown instruments.
+  // Fire-and-forget sample warmup for a configured instrument.
   prefetchInstrumentBytes(instrument) {
-    if (SYNTH_TYPES[instrument] || !SampleLibrary[instrument]) return
+    if (!SampleLibrary[instrument]) return
     this._ensureSampleBytes(instrument).catch(() => {})
   }
 
-  // Public awaitable form of _ensureSampleBytes — the offline bounce path
-  // needs the same module-level byte cache before decoding.
   ensureInstrumentBytes(instrument) {
     return this._ensureSampleBytes(instrument)
   }
 
   applyInstrumentConfig(instrument, config = {}) {
     const synth = this.synths[instrument]
-    if (synth) {
-      if (config.volume !== undefined) {
-        synth.volume.value = config.volume
-      }
-      return
+    if (synth && config.volume !== undefined) {
+      synth.volume.value = config.volume
     }
 
     const sampler = this.samplers[instrument]
     if (!sampler) return
-    
+
     if (config.volume !== undefined) {
       sampler.volume.value = config.volume
     }
@@ -785,12 +873,12 @@ class AudioEngine {
     }
   }
 
-  // Resolve an instrument name to a playable node: own synth → own sampler →
-  // 'synth' → 'piano' → null. Synths win over samplers of the same name.
+  // Resolve an instrument name to a playable node: loaded sampler (including
+  // the Sonofield 'synth' sampler) → own synth → default 'synth' → 'piano'.
   getPlayer(instrument) {
-    const player = this.synths[instrument] || this.samplers[instrument]
+    const player = this.samplers[instrument] || this.synths[instrument]
     if (player) return player
-    const fallback = this.synths['synth'] || this.samplers['piano'] || null
+    const fallback = this.samplers['synth'] || this.synths['synth'] || this.samplers['piano'] || null
     // Surface silent substitutions — a missing map used to masquerade as synth.
     if (fallback && !this.missingInstruments.has(instrument)) {
       this.missingInstruments.add(instrument)
@@ -1007,47 +1095,117 @@ class AudioEngine {
   // ─── Drone ────────────────────────────────────────────────────────────────
 
   /**
-   * Build and start a lush pad drone for the given tonic across regionBeats.
+   * Fetch + decode the real Sonofield stereo drone loop for `tonic`
+   * (/samples/sonofield-drone/<stem>.mp3). Cached at module level as both
+   * ArrayBuffer and AudioBuffer so context rebuilds and repeat visits are
+   * synchronous (0ms).
+   */
+  ensureDroneBuffer(tonic) {
+    const stem = tonicToDroneStem(tonic)
+    const cached = droneAudioBufferCache.get(stem)
+    if (cached) return Promise.resolve(cached)
+    const inflight = droneLoadPromises.get(stem)
+    if (inflight) return inflight
+
+    const task = (async () => {
+      try {
+        let ab = droneArrayBufferCache.get(stem)
+        if (!ab) {
+          const url = `${SONOFIELD_DRONE_BASE_URL}${stem}.mp3`
+          const res = await fetchWithTimeout(url)
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          const ct = res.headers?.get?.('content-type') || ''
+          if (ct.includes('text/html')) throw new Error('SPA HTML fallback')
+          ab = await res.arrayBuffer()
+          droneArrayBufferCache.set(stem, ab)
+        }
+        const rawCtx = Tone.getContext()?.rawContext
+        if (!rawCtx) return null
+        const decoded = await rawCtx.decodeAudioData(ab.slice(0))
+        droneAudioBufferCache.set(stem, decoded)
+        return decoded
+      } catch (_) {
+        return null
+      } finally {
+        droneLoadPromises.delete(stem)
+      }
+    })()
+
+    droneLoadPromises.set(stem, task)
+    return task
+  }
+
+  /** Warm a tonic's Sonofield drone loop in the background (called at section load). */
+  prefetchDrone(tonic) {
+    if (!tonic) return
+    this.ensureDroneBuffer(tonic).catch(() => {})
+  }
+
+  /**
+   * Start the tonic drone across regionBeats.
    *
-   * Layers (all routed through midiGain for the Background Volume slider):
-   *   1. Fundamental  – tonic2  (e.g. A2)  – slow sine-ish wave, full body
-   *   2. Octave       – tonic3  (e.g. A3)  – adds warmth, slightly softer
-   *   3. Perfect 5th  – fifth3  (e.g. E3)  – classic harmonic richness
-   *   4. 2nd octave   – tonic4  (e.g. A4)  – airy shimmer, very soft
-   *
-   * Each layer has a slow LFO (0.05–0.15 Hz) on gain to create gentle
-   * volume undulation that makes the drone feel alive.
-   *
-   * @param {string} tonic       - Key name e.g. 'A', 'C#'
-   * @param {number} regionBeats - Duration in beats at the current transport tempo
-   * @param {number} volumeDb    - Master volume in dB (from backgroundVolume slider)
+   * Primary path: real Sonofield SF2 stereo drone sample for the tonic
+   * (/samples/sonofield-drone/<stem>.mp3), looped seamlessly inside its
+   * pre-crossfaded [0.1s .. 14.1s] window with a smooth ~0.5s attack swell.
+   * If already decoded in droneAudioBufferCache, starts synchronously in 0ms.
+   * Fallback path: offline-baked loop (droneBaker) → 4-layer synth pad.
    */
   scheduleDroneNotes(tonic, regionBeats, volumeDb = 0) {
     this.stopDrone()
 
-    const midi = tonicToMidi(tonic, 2)                  // e.g. A2 = 45
+    const stem = tonicToDroneStem(tonic)
+    const epoch = ++this._droneEpoch
+
+    // Fast synchronous path when the tonic's Sonofield drone is already cached
+    const cached = droneAudioBufferCache.get(stem)
+    if (cached && this.midiGain) {
+      this._startSonofieldDrone(cached, volumeDb)
+      return
+    }
+
+    const midi = tonicToMidi(tonic, 2)
     const freq = 440 * Math.pow(2, (midi - 69) / 12)
     const band = droneBandIndex(freq)
-    const epoch = ++this._droneEpoch
     const sr = Tone.getContext()?.rawContext?.sampleRate || 44100
 
-    // Baked-loop drone (Sonofield-style): a seamless stereo AudioBuffer
-    // rendered once per octave band and retuned with playbackRate. The
-    // render is async — attach under an epoch guard so a stop/re-voice
-    // that raced it can't resurrect a dead drone. First use per band costs
-    // ~50–150ms (hidden under the attack ramp); cached afterwards.
-    droneLoopPromise(band, sr).then((buffer) => {
+    this.ensureDroneBuffer(tonic).then((buffer) => {
       if (epoch !== this._droneEpoch || !this.midiGain) return
       if (buffer) {
-        this._startDroneLoop(buffer, freq, band, volumeDb)
-      } else {
-        this._scheduleDroneSynthFallback(tonic, regionBeats, volumeDb)
+        this._startSonofieldDrone(buffer, volumeDb)
+        return
       }
+      return droneLoopPromise(band, sr).then((baked) => {
+        if (epoch !== this._droneEpoch || !this.midiGain) return
+        if (baked) {
+          this._startDroneLoop(baked, freq, band, volumeDb)
+        } else {
+          this._scheduleDroneSynthFallback(tonic, regionBeats, volumeDb)
+        }
+      })
     }).catch(() => {
       if (epoch === this._droneEpoch && this.midiGain) {
         this._scheduleDroneSynthFallback(tonic, regionBeats, volumeDb)
       }
     })
+  }
+
+  _startSonofieldDrone(buffer, volumeDb) {
+    const src = new Tone.ToneBufferSource(buffer)
+    src.loop = true
+    if (buffer.duration > 2) {
+      src.loopStart = 0.1
+      src.loopEnd = Math.min(buffer.duration - 0.1, 14.1)
+    }
+    const g = new Tone.Gain(0).connect(this.midiGain)
+    g.gain.setTargetAtTime(Math.pow(10, (volumeDb + 2) / 20), Tone.now(), 0.15)
+    src.connect(g)
+    src.start()
+    this.droneSources.push(src)
+    this.droneGains.push(g)
+    if (!this._loggedSonofieldDrone) {
+      this._loggedSonofieldDrone = true
+      console.info('[audio] drone: Sonofield SF2 stereo sample loop')
+    }
   }
 
   // Looped buffer → Tone.Gain → midiGain. Level sits ~3dB OVER the voice
@@ -1186,7 +1344,10 @@ class AudioEngine {
     try { this.killAllActiveNotes() } catch (_) {}
     // Clean up any live MIDI notes
     this.liveMidiNotes = {}
-    Object.values(this.samplers).forEach(sampler => { try { sampler.dispose() } catch (_) {} })
+    Object.values(this.samplers).forEach(sampler => {
+      try { sampler.chorusNode?.dispose() } catch (_) {}
+      try { sampler.dispose() } catch (_) {}
+    })
     Object.values(this.synths).forEach(synth => {
       try { synth.filterNode?.dispose() } catch (_) {}
       try { synth.chorusNode?.dispose() } catch (_) {}

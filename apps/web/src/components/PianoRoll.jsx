@@ -56,12 +56,13 @@ function isNoteDiatonic(midi, tonicPc, mode) {
 // CANVAS RENDERING
 // ═══════════════════════════════════════════════════════════════
 
-function renderGrid(ctx, { width, height, beatWidth, barStarts, totalBeats, lowestNote, highestNote, dpr, beatsPerDivision, isDark }) {
+function renderGrid(ctx, { width, height, beatWidth, barStarts, totalBeats, lowestNote, highestNote, dpr, beatsPerDivision, isDark, vpLeftPx = 0, vpWidthPx = width, viewportStartBeat = 0, viewportEndBeat = totalBeats }) {
   const totalNotes = highestNote - lowestNote + 1
   const cellH = ctx._cellH
   const q = v => snapDev(v, dpr)
   const hair = v => hairDev(v, dpr)
-  ctx.clearRect(0, 0, width, height)
+  const drawW = Math.min(width - vpLeftPx, vpWidthPx)
+  if (drawW <= 0) return
 
   const blackKeyBg = isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(180, 190, 210, 0.35)'
   const whiteKeyBg = isDark ? 'rgba(30, 41, 59, 0.3)' : 'rgba(220, 230, 245, 0.25)'
@@ -74,15 +75,15 @@ function renderGrid(ctx, { width, height, beatWidth, barStarts, totalBeats, lowe
     const midiNum = highestNote - i
     const y = i * cellH
     ctx.fillStyle = isBlackKey(midiNum) ? blackKeyBg : whiteKeyBg
-    ctx.fillRect(0, y, width, cellH)
+    ctx.fillRect(vpLeftPx, y, drawW, cellH)
     const yh = hair(y + cellH)
     ctx.strokeStyle = rowLine
     ctx.lineWidth = 1 / dpr
     ctx.beginPath()
-    ctx.moveTo(0, yh)
-    ctx.lineTo(width, yh)
+    ctx.moveTo(vpLeftPx, yh)
+    ctx.lineTo(vpLeftPx + drawW, yh)
     ctx.stroke()
-    if (midiNum % 12 === 0) {
+    if (midiNum % 12 === 0 && vpLeftPx <= 2) {
       ctx.strokeStyle = cMarker
       ctx.lineWidth = 2 / dpr
       ctx.beginPath()
@@ -92,24 +93,31 @@ function renderGrid(ctx, { width, height, beatWidth, barStarts, totalBeats, lowe
     }
   }
 
+  const minBeat = viewportStartBeat - 1
+  const maxBeat = viewportEndBeat + 1
+
   ctx.strokeStyle = barLine
   ctx.lineWidth = 2 / dpr
   ctx.beginPath()
   for (const bar of barStarts) {
+    if (bar.start < minBeat || bar.start > maxBeat) continue
     const x = q(bar.start * beatWidth)
     ctx.moveTo(x, 0)
     ctx.lineTo(x, height)
   }
-  const endX = q(totalBeats * beatWidth)
-  ctx.moveTo(endX, 0)
-  ctx.lineTo(endX, height)
+  if (totalBeats >= minBeat && totalBeats <= maxBeat) {
+    const endX = q(totalBeats * beatWidth)
+    ctx.moveTo(endX, 0)
+    ctx.lineTo(endX, height)
+  }
   ctx.stroke()
 
   ctx.strokeStyle = divLine
   ctx.lineWidth = 1 / dpr
   ctx.beginPath()
-  const totalDivisions = Math.floor(totalBeats / beatsPerDivision)
-  for (let divIndex = 0; divIndex <= totalDivisions; divIndex++) {
+  const firstDiv = Math.max(0, Math.floor(minBeat / beatsPerDivision))
+  const lastDiv = Math.min(Math.floor(totalBeats / beatsPerDivision), Math.ceil(maxBeat / beatsPerDivision))
+  for (let divIndex = firstDiv; divIndex <= lastDiv; divIndex++) {
     const beat = divIndex * beatsPerDivision
     if (beat > totalBeats + 0.0001) continue
     if (barStarts.some(b => Math.abs(b.start - beat) < 0.0001)) continue
@@ -190,18 +198,18 @@ function renderNotes(ctx, { notes, beatWidth, cellH, lowestNote, highestNote, vi
         ctx.font = `bold ${note.is_top_note !== undefined ? 12 : 11}px sans-serif`
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
-        ctx.fillStyle = labelNonDiatonic ? 'rgb(239, 68, 68)' : (isDark ? 'rgb(255, 255, 255)' : 'rgb(30, 41, 59)')
-        // Dark halo only on the dark grid — on light it reads as a blur
-        // around the (already dark) glyphs.
+        const tx = q(x0 + w / 2)
+        const ty = q(y - 6)
+        // Crisp dark outline on dark mode — avoids Canvas2D shadowBlur
+        // (software Gaussian blur on mobile Safari that stalls scroll redraws).
         if (isDark) {
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.8)'
-          ctx.shadowBlur = 3
-          ctx.shadowOffsetY = 1
+          ctx.strokeStyle = 'rgba(2, 6, 23, 0.85)'
+          ctx.lineWidth = 2.5
+          ctx.lineJoin = 'round'
+          ctx.strokeText(label, tx, ty)
         }
-        ctx.fillText(label, q(x0 + w / 2), q(y - 6))
-        ctx.shadowColor = 'transparent'
-        ctx.shadowBlur = 0
-        ctx.shadowOffsetY = 0
+        ctx.fillStyle = labelNonDiatonic ? 'rgb(239, 68, 68)' : (isDark ? 'rgb(255, 255, 255)' : 'rgb(30, 41, 59)')
+        ctx.fillText(label, tx, ty)
       }
     }
   }
@@ -263,7 +271,8 @@ function PianoRoll({
   // re-anchor can't read el.scrollLeft lazily because the browser clamps it
   // the moment the grid shrinks, before the beatWidth effect runs.
   const scrollLeftPxRef = useRef(0)
-  const [scrollLeft, setScrollLeft] = useState(0)
+  const scrollLeftRef = useRef(0)
+  const drawCanvasRef = useRef(null)
   const [viewportWidth, setViewportWidth] = useState(1000)
   // devicePixelRatio as state: browser zoom / moving the window to another
   // display changes it, and every snap/quantization must track it.
@@ -351,10 +360,15 @@ function PianoRoll({
       lastScrollEventAtRef.current = performance.now()
       const sl = el.scrollLeft
       scrollLeftPxRef.current = sl
-      // Clamp the state so during a rubber-band overscroll the canvas draw
-      // slice stays consistent with the DOM grid instead of detaching.
+      // Clamp so during a rubber-band overscroll the canvas draw slice
+      // stays consistent with the DOM grid instead of detaching.
+      // Redraw imperatively — zero React state updates during 60fps scroll!
       const max = Math.max(0, el.scrollWidth - el.clientWidth)
-      setScrollLeft(Math.min(Math.max(0, sl), max))
+      const clamped = Math.min(Math.max(0, sl), max)
+      if (clamped !== scrollLeftRef.current) {
+        scrollLeftRef.current = clamped
+        drawCanvasRef.current?.()
+      }
     }
     const onResize = () => setViewportWidth(el.getBoundingClientRect().width)
     onResize()
@@ -394,6 +408,7 @@ function PianoRoll({
     const snapped = Math.min(Math.max(0, snapDev((scrollLeftPxRef.current / prev) * beatWidth)), max)
     el.scrollLeft = snapped
     scrollLeftPxRef.current = snapped
+    scrollLeftRef.current = snapped
   }, [beatWidth])
 
   // Snap back to the section start when playback stops; pause keeps the view.
@@ -403,6 +418,10 @@ function PianoRoll({
     if (!el) return
     el.scrollLeft = 0
     scrollLeftPxRef.current = 0
+    if (scrollLeftRef.current !== 0) {
+      scrollLeftRef.current = 0
+      drawCanvasRef.current?.()
+    }
   }, [playbackState])
 
   // ── Playhead + canvas anchoring + auto-scroll (RAF — no re-render) ──
@@ -411,35 +430,30 @@ function PianoRoll({
     let last = -1
     let lastTx = -1
     let lastTy = -1
-    const tick = () => {
+    let rectCheckedAt = 0
+    const tick = (now) => {
       const el = scrollRef.current
       if (canvasRef.current && el) {
-        // The canvas lives OUTSIDE the scroll layer (sibling overlay pinned to
-        // the scrollport) so its composite position carries NO scroll term —
-        // only a static sub-pixel landing correction. The previous
-        // in-scroller translate snapped the CONTENT-space point
-        // pinnedLeft + scrollLeft: the composite landed at
-        // snapDev(pinnedLeft+sl) - sl — device-integral only when
-        // scrollLeft·dpr was integral, which is essentially never on iOS
-        // (CGFloat contentOffsets). Every fractional resting scroll offset
-        // resampled the whole bitmap — the persistent blur.
-        const srect = el.getBoundingClientRect()
-        const pinnedLeft = srect.left + 44
-        const tx = snapDev(pinnedLeft) - pinnedLeft
-        const pinnedTop = srect.top + BAR_LABEL_HEIGHT
-        const ty = snapDev(pinnedTop) - pinnedTop
-        if (tx !== lastTx || ty !== lastTy) {
-          canvasRef.current.style.transform = `translate(${tx}px, ${ty}px)`
-          lastTx = tx
-          lastTy = ty
+        // Re-check sub-pixel canvas landing offset at a throttled cadence
+        // (~250ms) instead of every frame after mutating el.scrollLeft
+        // (which previously forced 60Hz synchronous layout reflows).
+        if (lastTx === -1 || now - rectCheckedAt > 250) {
+          rectCheckedAt = now
+          const srect = el.getBoundingClientRect()
+          const pinnedLeft = srect.left + 44
+          const tx = snapDev(pinnedLeft) - pinnedLeft
+          const pinnedTop = srect.top + BAR_LABEL_HEIGHT
+          const ty = snapDev(pinnedTop) - pinnedTop
+          if (tx !== lastTx || ty !== lastTy) {
+            canvasRef.current.style.transform = `translate(${tx}px, ${ty}px)`
+            lastTx = tx
+            lastTy = ty
+          }
         }
 
         // Idle settle: a fractional scrollLeft composites the ENTIRE scroll
-        // layer (DOM labels + canvas) at a sub-pixel offset → blur. Safari
-        // can restore a fractional offset on reload without firing a scroll
-        // event, so the guard lives in the RAF tick and only fires after
-        // scrolling has been quiet for a moment (never mid-momentum).
-        if (performance.now() - lastScrollEventAtRef.current > 120) {
+        // layer (DOM labels + canvas) at a sub-pixel offset → blur.
+        if (now - lastScrollEventAtRef.current > 120) {
           const dpr = dprNow()
           const dev = el.scrollLeft * dpr
           if (Math.abs(dev - Math.round(dev)) > 0.05) el.scrollLeft = snapDev(el.scrollLeft)
@@ -456,9 +470,6 @@ function PianoRoll({
         const rel = px - el.scrollLeft
         const target = el.clientWidth * 0.35
         if (rel > target || rel < 0) {
-          // Dev-px-snap the write so the DOM layer doesn't sit at a
-          // fractional offset for the entire playback (which would also
-          // keep the scroll-settle snap from ever firing).
           el.scrollLeft = Math.max(0, snapDev(px - target))
         }
       }
@@ -468,45 +479,38 @@ function PianoRoll({
     return () => cancelAnimationFrame(raf)
   }, [isPlaying, gridWidth, cursorRef])
 
-  // ── Canvas render — viewport slice only ─────────────────────
-  useEffect(() => {
+  // ── Canvas render — viewport slice only (imperative on scroll) ──
+  const drawCanvas = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx._cellH = cellH
-    // Cap 4: the viewport-sized canvas stays small (~1–2 Mpx) even at dpr 4 —
-    // the old cap dated from the full-width canvas that hit iOS limits.
     const dpr = Math.min(dprRaw, 4)
     const cssW = Math.min(Math.max(0, viewportWidth - 44), gridWidth)
     if (cssW <= 0) return
     const bw = Math.round(cssW * dpr)
     const bh = Math.round(gridHeight * dpr)
-    // Assigning width/height clears the canvas — only touch it when it changed
     if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh }
-    // Size the element to exact multiples of 1/dpr so the bitmap composites
-    // 1:1 — a fractional CSS size forces a GPU stretch and softens everything.
     canvas.style.width = `${bw / dpr}px`
     canvas.style.height = `${bh / dpr}px`
-    // Snap the slice offset to whole device pixels (matching the canvas
-    // element's snapped translateX in the RAF tick) so integer grid coords
-    // land on exact device pixels — fractional offsets blur everything.
-    const slDraw = Math.round(scrollLeft * dpr)
-    // setTransform: dpr scale + viewport offset in one atomic reset
+    const slDraw = Math.round(scrollLeftRef.current * dpr)
+    const vpLeftPx = slDraw / dpr
     ctx.setTransform(dpr, 0, 0, dpr, -slDraw, 0)
-    // Clear the exact viewport slice in scroll-space — clearing only
-    // [0, gridWidth] never reaches the bitmap tail when the viewport
-    // overshoots the grid's right edge (trailing scroll margin), so stale
-    // line pixels from earlier scroll positions accumulate there.
-    ctx.clearRect(slDraw / dpr, 0, cssW, gridHeight)
+    ctx.clearRect(vpLeftPx, 0, cssW, gridHeight)
 
-    const vpStart = (slDraw / dpr) / beatWidth
-    const vpEnd = ((slDraw / dpr) + cssW) / beatWidth
+    const vpStart = vpLeftPx / beatWidth
+    const vpEnd = (vpLeftPx + cssW) / beatWidth
 
-    renderGrid(ctx, { width: gridWidth, height: gridHeight, beatWidth, barStarts: effectiveBarStarts, totalBeats, lowestNote, highestNote, dpr, beatsPerDivision, isDark })
+    renderGrid(ctx, { width: gridWidth, height: gridHeight, beatWidth, barStarts: effectiveBarStarts, totalBeats, lowestNote, highestNote, dpr, beatsPerDivision, isDark, vpLeftPx, vpWidthPx: cssW, viewportStartBeat: vpStart, viewportEndBeat: vpEnd })
     renderNotes(ctx, { notes: displayNotes, beatWidth, cellH, lowestNote, highestNote, viewportStartBeat: vpStart, viewportEndBeat: vpEnd, dpr, showAnswers, notation, isDark })
     renderRegionOverlay(ctx, { width: gridWidth, height: gridHeight, regionStartPx: regionStart * gridWidth, regionEndPx: regionEnd * gridWidth, dpr })
-  }, [displayNotes, beatWidth, gridWidth, gridHeight, cellH, effectiveBarStarts, totalBeats, beatsPerDivision, lowestNote, highestNote, scrollLeft, viewportWidth, regionStart, regionEnd, showAnswers, notation, isDark, dprRaw])
+  }, [displayNotes, beatWidth, gridWidth, gridHeight, cellH, effectiveBarStarts, totalBeats, beatsPerDivision, lowestNote, highestNote, viewportWidth, regionStart, regionEnd, showAnswers, notation, isDark, dprRaw])
+
+  drawCanvasRef.current = drawCanvas
+  useEffect(() => {
+    drawCanvas()
+  }, [drawCanvas])
 
   // ── Region handle dragging (mouse + touch via pointer events) ──
   const regionDragCleanup = useRef(null)
