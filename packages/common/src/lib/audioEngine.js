@@ -227,6 +227,7 @@ class AudioEngine {
       }
       
       const normalizedVelocity = Math.max(0, Math.min(1, velocity / 127))
+      this.unmuteNotes()
       const player = this.getPlayer(instrument)
       if (player) {
         player.triggerAttack(noteName, Tone.now(), normalizedVelocity)
@@ -322,6 +323,7 @@ class AudioEngine {
       // initialize() and taxed the mobile audio render thread over Bluetooth).
       // The limiter is the last stage so summed voices can't clip the output.
       this.midiGain = new Tone.Volume(-3)
+      this.noteGain = new Tone.Gain(1).connect(this.midiGain)
       this.fxCompressor = new Tone.Compressor({ threshold: -18, ratio: 2.5, attack: 0.01, release: 0.2 })
       this.fxLimiter = new Tone.Limiter(-1.5)
       this.midiGain.connect(this.fxCompressor)
@@ -624,7 +626,7 @@ class AudioEngine {
     })
     const chorus = new Tone.Chorus(1.2, 4, 0.5).start()
     chorus.wet.value = 0.2
-    chorus.connect(this.midiGain)
+    chorus.connect(this.noteGain || this.midiGain)
     if (def.filter) {
       const filter = new Tone.Filter(def.filter, 'lowpass').connect(chorus)
       synth.connect(filter)
@@ -715,7 +717,7 @@ class AudioEngine {
       // Sonofield Preset 1 'Synth' global zone: chorusSend = 200 (20% wet)
       const chorus = new Tone.Chorus(1.2, 4, 0.5).start()
       chorus.wet.value = 0.2
-      chorus.connect(this.midiGain)
+      chorus.connect(this.noteGain || this.midiGain)
       sampler.connect(chorus)
       sampler.chorusNode = chorus
       if (!this._loggedSonofieldSynth) {
@@ -723,7 +725,7 @@ class AudioEngine {
         console.info('[audio] synth: Sonofield SF2 stereo multisamples loaded')
       }
     } else {
-      sampler.connect(this.midiGain)
+      sampler.connect(this.noteGain || this.midiGain)
     }
     this.samplers[instrument] = sampler
     this.applyInstrumentConfig(instrument, config)
@@ -808,12 +810,75 @@ class AudioEngine {
     this.prefetchInstrumentBytes(instrument)
   }
 
+  /**
+   * Restore the noteGain bus to unity before starting playback or auditioning
+   * a note (silenceNotes() ramps it to 0 on pause/stop so queued lookahead
+   * notes cannot bleed through after the user taps Pause).
+   */
+  unmuteNotes() {
+    if (!this.noteGain) return
+    try {
+      const now = Tone.immediate()
+      this.noteGain.gain.cancelScheduledValues(now)
+      this.noteGain.gain.setValueAtTime(1, now)
+    } catch (_) {}
+  }
+
+  /**
+   * Immediately silence all melodic/harmonic note instruments (without
+   * touching the tonic drone on midiGain). Ramps noteGain to 0 over 10ms
+   * starting at Tone.immediate() (not Tone.now(), which is +100ms lookAhead!),
+   * stops all active/queued Tone.Sampler buffer sources, and resets
+   * Tone.PolySynth instances so internal context.setTimeout future attacks
+   * from the lookahead window are aborted (`this.disposed === true`).
+   */
+  silenceNotes() {
+    const now = Tone.immediate()
+    if (this.noteGain) {
+      try {
+        this.noteGain.gain.cancelScheduledValues(now)
+        this.noteGain.gain.setTargetAtTime(0, now, 0.004)
+      } catch (_) {}
+    }
+    for (const sampler of Object.values(this.samplers)) {
+      try { sampler.releaseAll?.(now) } catch (_) {}
+      // Also stop any sources still tracked in _activeSources
+      try {
+        sampler._activeSources?.forEach((sources) => {
+          while (sources.length) {
+            const src = sources.shift()
+            try { src.stop(now) } catch (_) {}
+            try { src._source?.disconnect?.() } catch (_) {}
+          }
+        })
+      } catch (_) {}
+    }
+    // PolySynth schedules future attacks via context.setTimeout and only
+    // skips them when `this.disposed` is true — recreate active PolySynths
+    // in place (<0.2ms, zero sample decoding) so queued future attacks
+    // cannot fire after pause/stop.
+    const synthEntries = Object.entries(this.synths)
+    if (synthEntries.length && this.midiGain) {
+      this.synths = {}
+      for (const [name, oldSynth] of synthEntries) {
+        try { oldSynth.releaseAll?.(now) } catch (_) {}
+        setTimeout(() => {
+          try { oldSynth.filterNode?.dispose() } catch (_) {}
+          try { oldSynth.chorusNode?.dispose() } catch (_) {}
+          try { oldSynth.dispose() } catch (_) {}
+        }, 40)
+        this._buildSynthVoice(name, this.instrumentConfigs[name] || INSTRUMENT_CONFIGS[name] || {})
+      }
+    }
+  }
+
   async start(startBeat = 0) {
     if (!this.isInitialized) await this.initialize()
     
     const contextStarted = await this.startAudioContext()
     if (!contextStarted) throw new Error('Audio context could not be started')
 
+    this.unmuteNotes()
     Tone.getTransport().position = `${Math.round(startBeat * Tone.getTransport().PPQ)}i`
     Tone.getTransport().start()
     this.lastActiveAt = Date.now()
@@ -825,6 +890,7 @@ class AudioEngine {
   stop() {
     this.stopPositionTracking()
     this.stopLookAheadScheduler()
+    try { this.silenceNotes() } catch (_) {}
     try { this.killAllActiveNotes() } catch (_) {}
     try { this.stopAllLiveNotes() } catch (_) {}
     try { this.stopDrone() } catch (_) {}
@@ -837,6 +903,7 @@ class AudioEngine {
   pause({ releaseActiveNotes = true } = {}) {
     this.stopPositionTracking()
     this.stopLookAheadScheduler()
+    try { this.silenceNotes() } catch (_) {}
     if (releaseActiveNotes) {
       try { this.killAllActiveNotes() } catch (_) {}
     }
@@ -896,6 +963,7 @@ class AudioEngine {
         await this.loadInstrument(instrument, this.instrumentConfigs[instrument])
       }
 
+      this.unmuteNotes()
       const player = this.getPlayer(instrument)
       if (player) {
         player.triggerAttackRelease(noteName, duration, Tone.now(), 0.8)
@@ -1358,6 +1426,10 @@ class AudioEngine {
     for (const key of ['fxCompressor', 'fxLimiter', 'fxReverbSend', 'fxReverb', 'outputAnalyser']) {
       try { this[key]?.dispose() } catch (_) {}
       this[key] = null
+    }
+    if (this.noteGain) {
+      try { this.noteGain.dispose() } catch (_) {}
+      this.noteGain = null
     }
     if (this.midiGain) {
       try { this.midiGain.dispose() } catch (_) {}

@@ -48,12 +48,16 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   context (iOS leaks live contexts otherwise).
 - **`isContextBlocked()`** treats `suspended`/`interrupted`/`closed` as dead —
   `play()` must recover inside the user gesture before scheduling.
-- **Mastering chain is `midiGain → compressor → limiter → destination`** —
-  no distortion/waveshaper (summed voices clipped it) and no `Tone.Reverb`
-  convolver (`Tone.Reverb` ran an `OfflineContext` render inside
-  `initialize()`, stalling gesture activation, and taxed the mobile audio
-  render thread over Bluetooth). Matches Sonofield (`reverbSend = 0`) and
-  SingMasterPro.
+- **Mastering chain is `midiGain → compressor → limiter → destination`**,
+  with melodic/harmonic instruments routed through `noteGain → midiGain`
+  while the drone connects directly to `midiGain`. On pause/stop,
+  `silenceNotes()` ramps `noteGain` to `0` in ~10ms, disconnects queued
+  `ToneBufferSource`s captured before `triggerRelease` empties
+  `Sampler._activeSources`, and recreates `PolySynth` instances (whose
+  future `context.setTimeout` attacks only abort when `this.disposed` is
+  true) — so zero extra notes from the lookahead queue ever sound after
+  Pause while the paused drone stays seamlessly audible. No
+  distortion/waveshaper and no `Tone.Reverb` convolver.
 - **Sonofield SF2 sounds (`public/samples/`)**: extracted from
   `Sonofield_REA/free.sf2` via `scripts/extract-sonofield-samples.py`:
   1. **Drone (`public/samples/sonofield-drone/<C..B>.mp3`)**: 12 chromatic

@@ -161,8 +161,17 @@ function scheduleNotesAudioClock(notes, { regionBeats, tempo, resumeRegionBeat, 
     const velocity = Math.min(Math.max((n.velocity ?? 0.8) * Math.pow(10, (n.volume ?? 0) / 20), 0), 1)
     try {
       player.triggerAttack(n.note, t, velocity)
+      // Capture the ToneBufferSource BEFORE triggerRelease empties
+      // Sampler._activeSources — otherwise pause/stop has no handle to cancel
+      // already-scheduled future buffer sources in the lookahead window!
+      let source = null
+      if (player._activeSources) {
+        const midi = noteNameToMidi(n.note)
+        const arr = player._activeSources.get(midi)
+        if (arr && arr.length) source = arr[arr.length - 1]
+      }
       player.triggerRelease(n.note, t + durSec)
-      pendingRef.current.push({ player, note: n.note, t, tEnd: t + durSec })
+      pendingRef.current.push({ player, note: n.note, t, tEnd: t + durSec, source })
     } catch (_) {}
   }
 
@@ -186,17 +195,26 @@ function scheduleNotesAudioClock(notes, { regionBeats, tempo, resumeRegionBeat, 
     }
   }
 
+  audioEngine.unmuteNotes()
   enqueue()
   timerRef.current.push(window.setInterval(enqueue, AUDIO_TICK_MS))
 }
 
-/** Silently cancel enqueued-but-unfired notes + release sounding ones. */
+/** Immediately cancel enqueued-but-unfired notes + silence sounding ones. */
 function cancelPendingAudioNotes(pendingRef) {
   const now = Tone.getContext().rawContext?.currentTime ?? 0
   for (const e of pendingRef.current) {
-    // +20ms so the release lands just after the attack — cancels the note
-    // without an audible blip and without racing a same-timestamp attack.
-    try { e.player.triggerRelease(e.note, Math.max(now, e.t) + 0.02) } catch (_) {}
+    if (e.source) {
+      if (e.t > now + 0.005) {
+        // Note hasn't started yet — disconnect and dispose its buffer source
+        // so it can never produce a single sample after Pause/Stop.
+        try { e.source._source?.disconnect?.() } catch (_) {}
+        try { e.source.dispose?.() } catch (_) {}
+      } else if (e.tEnd > now) {
+        try { e.source._source?.stop?.(now + 0.012) } catch (_) {}
+      }
+    }
+    try { e.player.triggerRelease(e.note, now) } catch (_) {}
   }
   pendingRef.current = []
 }
@@ -1215,6 +1233,7 @@ function EarTrainer() {
       await ensureInstrument(inst)
       const player = audioEngine.getPlayer(inst)
       if (!player) return
+      audioEngine.unmuteNotes()
       const vel = Math.min(Math.max(note.velocity ?? 0.8, 0), 1)
       // Constant ~1s audition on the audio clock — independent of the
       // note's notated length, tempo, speed setting and wall-clock timers.
