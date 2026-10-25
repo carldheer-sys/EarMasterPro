@@ -20,6 +20,8 @@ import { encodeWavPcm16, encodeWavPcm16Async, stretchBufferOla, stretchBufferOla
 import { bounceSection } from '../packages/common/src/lib/sectionBounce.js'
 import SampleLibrary from '../packages/common/src/lib/Tonejs-Instruments.js'
 import { INSTRUMENT_OPTIONS, SYNTH_TYPES, tonicToDroneStem } from '../packages/common/src/lib/audioEngine.js'
+import { AdaptiveAudioScheduler, DEFAULT_BASE_LOOKAHEAD_S, DEFAULT_MAX_LOOKAHEAD_S } from '../packages/common/src/lib/carplayScheduler.js'
+import { createDitheredKeepaliveWavBlob, prebufferAudioElement, CarPlayMediaBridge } from '../packages/common/src/lib/carplayMediaBridge.js'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -287,5 +289,63 @@ describe('Sonofield SF2 extracted samples & instrument maps', () => {
     expect(sw).toContain('earmaster-pro-__SW_VERSION__')
     expect(sw).toContain("url.pathname.startsWith('/samples/')")
     expect(sw).toContain("url.pathname.includes('/tonejs-instruments/samples/')")
+    expect(sw).toContain('respondWithRange')
+    expect(sw).toContain('Partial Content')
+  })
+})
+
+describe('CarPlay Wi-Fi AdaptiveAudioScheduler & CarPlayMediaBridge', () => {
+  it('stays at baseline look-ahead on low-jitter speakers and widens up to 2.2s on CarPlay Wi-Fi jitter spikes', () => {
+    const ctx = { currentTime: 0 }
+    const sched = new AdaptiveAudioScheduler({ audioContext: ctx })
+    expect(sched.lookaheadSec).toBeCloseTo(DEFAULT_BASE_LOOKAHEAD_S, 2)
+
+    // Smooth speaker ticks: 60ms wall == 0.06s audio
+    sched.observeClock(0, 0)
+    sched.observeClock(60, 0.06)
+    sched.observeClock(120, 0.12)
+    expect(sched.lookaheadSec).toBeCloseTo(DEFAULT_BASE_LOOKAHEAD_S, 2)
+
+    // CarPlay 5GHz Wi-Fi packet burst: 300ms wall passes while audio clock stalls, then jumps
+    const widened = sched.observeClock(420, 0.12)
+    expect(widened).toBeGreaterThan(1.4)
+    expect(widened).toBeLessThanOrEqual(DEFAULT_MAX_LOOKAHEAD_S)
+  })
+
+  it('generates a non-silent +/-1 LSB dithered stereo WAV keepalive blob and pre-buffers HTMLAudioElement', async () => {
+    const blob = createDitheredKeepaliveWavBlob(8000, 1)
+    expect(blob.type).toBe('audio/wav')
+    expect(blob.size).toBe(44 + 8000 * 2 * 2)
+    const v = await wavView(blob)
+    expect(v.getInt16(44, true)).toBe(-1)
+    expect(v.getInt16(46, true)).toBe(1)
+    expect(v.getInt16(48, true)).toBe(1)
+
+    const el = fakeAudioEl()
+    const url = await prebufferAudioElement(el, blob, { mimeType: 'audio/wav' })
+    expect(typeof url).toBe('string')
+    expect(el.preload).toBe('auto')
+    URL.revokeObjectURL(url)
+  })
+
+  it('wires navigator.mediaSession action handlers for CarPlay steering-wheel & screen controls', () => {
+    const actions = {}
+    vi.stubGlobal('navigator', {
+      mediaSession: {
+        playbackState: 'none',
+        setActionHandler: (name, fn) => { actions[name] = fn },
+      },
+    })
+    const bridge = new CarPlayMediaBridge()
+    let prevCalled = 0, nextCalled = 0
+    bridge.setActionHandlers({
+      onPreviousTrack: () => { prevCalled++ },
+      onNextTrack: () => { nextCalled++ },
+    })
+    actions.previoustrack?.()
+    actions.nexttrack?.()
+    expect(prevCalled).toBe(1)
+    expect(nextCalled).toBe(1)
+    vi.unstubAllGlobals()
   })
 })

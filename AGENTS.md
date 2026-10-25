@@ -89,12 +89,23 @@ Single-page PWA ear-training app. One page (`apps/web/src/pages/EarTrainer.jsx`)
   `BaseAudioContext`** — `new AudioWorkletNode(wrapper)` throws. Unwrap via
   `._nativeContext` for native-API construction (see `GranularPlayer`);
   wrapped nodes connect via `wrappedNode._nativeAudioNode`.
-- **Note scheduling is audio-clock look-ahead** (`scheduleNotesAudioClock` in
-  EarTrainer): one 100ms interval enqueues notes ≥0.4s ahead at absolute
-  AudioContext times — never schedule notes with per-note `setTimeout`
-  (timer jitter = audible stutter on mobile). The horizon is widened to
-  `ctx.outputLatency + 0.6s` (≤1.5s) on high-latency routes like Bluetooth,
-  whose clock advances in bursts long enough to starve a 0.4s window.
+- **Note scheduling is adaptive audio-clock look-ahead**
+  (`AdaptiveAudioScheduler` in `carplayScheduler.js` + `scheduleNotesAudioClock`
+  in `EarTrainer.jsx`): a Web-Worker-backed `60ms` ticker enqueues notes at
+  absolute `AudioContext` times. It measures real-time clock skew
+  `|dtWall - dtAudio|` and stepped audio-clock bursts: stays at `0.5s` on
+  low-jitter speakers and widens up to `2.2s` (15s decay hold) on Wireless
+  CarPlay 5GHz Wi-Fi / Bluetooth bursts (since `ctx.outputLatency` is
+  `undefined` on iOS WebKit).
+- **CarPlay Media Session Bridge (`carplayMediaBridge.js`)**: starts a
+  pre-buffered in-memory 2s stereo WAV `<audio>` carrier (`±1 LSB` `-90 dBFS`
+  dithered keepalive so CoreAudio/MIB3 never silence-gates the stream) inside
+  `play()`, wires `navigator.mediaSession` (`play`, `pause`, `stop`, and
+  `previoustrack`/`nexttrack` to switch catalog sections), and keeps playback
+  running across screen lock (`visibilitychange` → `'hidden'`) while playing
+  or droning. `public/sw.js` pre-caches all Sonofield samples on install,
+  synthesizes RFC 7233 `206 Partial Content` Range responses from cache, and
+  bounds `networkFirst` metadata fetches to a `1.2s` timeout.
 - **Latency hint is always `'playback'`** (`PLAYBACK_LATENCY_HINT`) — never
   retry with `'interactive'`: its small output buffer underruns on Bluetooth.
 - **Watchdog rebuilds need 2 consecutive dead ticks and never rebuild an

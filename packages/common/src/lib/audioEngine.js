@@ -495,7 +495,10 @@ class AudioEngine {
     this.stopKeepalive()
     this.keepaliveIntervalId = setInterval(async () => {
       try {
-        if (document.hidden) return  // don't fight an OS/deliberate suspend
+        const activeAudio = Tone.getTransport()?.state === 'started'
+          || this.droneSources.length > 0
+          || this.droneSynths.length > 0
+        if (document.hidden && !activeAudio) return
         const rawCtx = Tone.getContext()?.rawContext
         if (!rawCtx) return
         if (rawCtx.state === 'suspended' || rawCtx.state === 'interrupted') {

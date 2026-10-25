@@ -3,6 +3,8 @@ import * as Tone from 'tone'
 import { BookOpen, Eye, EyeOff, FileText, Hash, Headphones, Keyboard, Loader2, Lock, Moon, Pause, Play, Repeat, Settings, Square, Sun, Type, Minus, Plus } from 'lucide-react'
 import audioEngine, { INSTRUMENT_CONFIGS, isContextBlocked, isPreActivationBlockedContext, resumeWithTimeout, swapToneContext } from '@common/lib/audioEngine'
 import { GranularPlayer } from '@common/lib/granularPlayer'
+import { AdaptiveAudioScheduler } from '@common/lib/carplayScheduler'
+import { carPlayMediaBridge } from '@common/lib/carplayMediaBridge'
 import {
   beatsPerBarFromTimeSignature,
   buildMeterTimeline,
@@ -111,9 +113,9 @@ function clearTimerList(timerRef) {
   timerRef.current = []
 }
 
-const AUDIO_LOOKAHEAD_S = 0.4   // minimum audio-clock look-ahead (raised on high-latency routes)
-const AUDIO_LOOKAHEAD_MAX_S = 1.5
-const AUDIO_TICK_MS = 100       // scheduler wake-up interval
+const AUDIO_LOOKAHEAD_S = 0.5   // baseline audio-clock look-ahead (widens up to 2.2s on CarPlay jitter)
+const AUDIO_LOOKAHEAD_MAX_S = 2.2
+const AUDIO_TICK_MS = 60        // Web-Worker scheduler wake-up interval
 
 function sliceRegionNotes(list, startBeat, endBeat, volumeDb, instrument) {
   return (list || [])
@@ -133,17 +135,13 @@ function sliceRegionNotes(list, startBeat, endBeat, volumeDb, instrument) {
 const PLAYBACK_LATENCY_HINT = 'playback'
 
 /**
- * Look-ahead scheduler: ONE interval enqueues notes for the next ~0.4 s at
- * absolute AudioContext times. Timer jitter can't shift note timing — the
- * trigger times are stamped on the audio clock, so this is stutter-immune
- * even when the main thread stalls (the old per-note setTimeout approach let
- * every canvas repaint/buffer copy become audible jitter on mobile).
- *
- * pendingRef collects enqueued attacks {player, note, t, tEnd}; on pause/stop
- * we schedule triggerRelease at each pending attack time (silent cancel) and
- * releaseAll() the players for sounding notes.
+ * Adaptive Look-Ahead Scheduler: a Web-Worker-backed ticker (`AdaptiveAudioScheduler`)
+ * enqueues notes on absolute AudioContext times. When CarPlay 5GHz Wi-Fi packet
+ * jitter or main-thread timer coalescing is detected (`|dtWall - dtAudio| > 35ms`),
+ * the look-ahead window dynamically widens from 0.5s up to 2.2s, while
+ * `silenceNotes()` + `cancelPendingAudioNotes()` still cut sound in ~10ms on Pause.
  */
-function scheduleNotesAudioClock(notes, { regionBeats, tempo, resumeRegionBeat, looping, timerRef, pendingRef, lookaheadS = AUDIO_LOOKAHEAD_S }) {
+function scheduleNotesAudioClock(notes, { regionBeats, tempo, resumeRegionBeat, looping, schedulerRef, pendingRef, lookaheadS = AUDIO_LOOKAHEAD_S }) {
   if (!notes.length || regionBeats <= 0) return
   const ctx = Tone.getContext().rawContext
   if (!ctx) return
@@ -175,8 +173,20 @@ function scheduleNotesAudioClock(notes, { regionBeats, tempo, resumeRegionBeat, 
     } catch (_) {}
   }
 
-  const enqueue = () => {
-    const horizonP = origin + (ctx.currentTime + lookaheadS - t0) / spb
+  audioEngine.unmuteNotes()
+  const scheduler = new AdaptiveAudioScheduler({
+    audioContext: ctx,
+    baseLookaheadSec: lookaheadS,
+    maxLookaheadSec: AUDIO_LOOKAHEAD_MAX_S,
+    tickMs: AUDIO_TICK_MS,
+  })
+  if (schedulerRef) {
+    schedulerRef.current?.stop()
+    schedulerRef.current = scheduler
+  }
+
+  scheduler.start(({ audioTime, horizonAudioTime }) => {
+    const horizonP = origin + (horizonAudioTime - t0) / spb
     if (horizonP <= scheduledUntil) return
     for (const n of notes) {
       if (!looping) {
@@ -190,14 +200,9 @@ function scheduleNotesAudioClock(notes, { regionBeats, tempo, resumeRegionBeat, 
     scheduledUntil = horizonP
     // Prune the pending list so it can't grow forever during long loops
     if (pendingRef.current.length > 400) {
-      const now = ctx.currentTime
-      pendingRef.current = pendingRef.current.filter(e => e.tEnd > now - 1)
+      pendingRef.current = pendingRef.current.filter(e => e.tEnd > audioTime - 1)
     }
-  }
-
-  audioEngine.unmuteNotes()
-  enqueue()
-  timerRef.current.push(window.setInterval(enqueue, AUDIO_TICK_MS))
+  })
 }
 
 /** Immediately cancel enqueued-but-unfired notes + silence sounding ones. */
@@ -372,6 +377,7 @@ function EarTrainer() {
   const audioPlayerRef = useRef(null)
   const audioDbRef = useRef(AUDIO_DB)     // per-track loudness gain (dB)
   const noteTimersRef = useRef([])
+  const noteSchedulerRef = useRef(null)   // AdaptiveAudioScheduler instance
   const notePendingRef = useRef([])   // enqueued-but-unfired audio-clock notes
   const stopTimerRef = useRef(null)
   const activeNotesRef = useRef(new Map())
@@ -472,6 +478,8 @@ function EarTrainer() {
   const stopPlayback = useCallback(({ keepPreparing = false, keepRecovery = false, keepSeek = false } = {}) => {
     playbackTokenRef.current += 1
     clearTimerList(noteTimersRef)
+    noteSchedulerRef.current?.stop()
+    noteSchedulerRef.current = null
     if (stopTimerRef.current) { window.clearTimeout(stopTimerRef.current); stopTimerRef.current = null }
     if (playbackWatchdogTimerRef.current) { window.clearTimeout(playbackWatchdogTimerRef.current); playbackWatchdogTimerRef.current = null }
     if (!keepRecovery) playbackRecoveryAttemptRef.current = 0
@@ -494,11 +502,8 @@ function EarTrainer() {
       pausedBeatRef.current = 0
       cursorRef.current = 0
     }
-    // 'ambient' drops Now-Playing eligibility — dismisses the iOS lock-screen
-    // banner the moment playback isn't running (only 'playback' sessions are
-    // eligible). Restored to 'playback' in play()/ensureFreshAudioContext.
-    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
-    try { if (navigator.mediaSession) navigator.mediaSession.playbackState = 'none' } catch (_) {}
+    // Release the CarPlay carrier & drop Now-Playing eligibility on explicit Stop
+    carPlayMediaBridge.deactivate({ releaseSession: true })
     playbackStateRef.current = 'stopped'
     setPlaybackState('stopped')
   }, [])
@@ -509,6 +514,8 @@ function EarTrainer() {
     const elapsedBeats = Math.max(0, (Tone.now() - playbackStartTimeRef.current) * effectiveTempo / 60)
     pausedBeatRef.current = startBeat + elapsedBeats
     clearTimerList(noteTimersRef)
+    noteSchedulerRef.current?.stop()
+    noteSchedulerRef.current = null
     if (stopTimerRef.current) { window.clearTimeout(stopTimerRef.current); stopTimerRef.current = null }
     if (playbackWatchdogTimerRef.current) { window.clearTimeout(playbackWatchdogTimerRef.current); playbackWatchdogTimerRef.current = null }
     cancelPendingAudioNotes(notePendingRef)
@@ -520,19 +527,8 @@ function EarTrainer() {
     setKbDroneOn(false)
     releaseActiveNotes(activeNotesRef)
     audioPlayerRef.current?.stop()
-    // Session type follows audibility: while a drone is sounding the session
-    // must stay 'playback' — 'ambient' respects the iPhone mute switch and
-    // would silence it (which is why a note click seemed to "bring it back":
-    // ensureActive re-set 'playback'). Without a drone nothing is audible,
-    // so 'ambient' still dismisses the Now-Playing banner.
-    try {
-      if (navigator.audioSession) {
-        navigator.audioSession.type = dronePlayingRef.current ? 'playback' : 'ambient'
-      }
-    } catch (_) {}
-    // 'paused' (not 'none') keeps Now Playing/BT route claimed through the
-    // pause — dropping it makes the OS renegotiate the route on resume.
-    try { if (navigator.mediaSession) navigator.mediaSession.playbackState = 'paused' } catch (_) {}
+    // Keep CarPlay Media channel & wireless stream handshake claimed through pause
+    carPlayMediaBridge.holdOnPause()
     playbackStateRef.current = 'paused'
     setPlaybackState('paused')
   }, [playbackState])
@@ -666,8 +662,11 @@ function EarTrainer() {
     try {
       setAudioPreparing(true)
       setError('')
-      // Unlock audio IMMEDIATELY inside the user gesture on mobile
+      // Unlock audio + activate the CarPlay Media carrier IMMEDIATELY inside
+      // the user gesture on mobile (keeps the Skoda MIB3 5GHz Wi-Fi Media
+      // channel locked open).
       try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
+      carPlayMediaBridge.activate().catch(() => {})
       await ensureFreshAudioContext({ latencyHint: PLAYBACK_LATENCY_HINT })
 
       const { settings: s, notes, chordsNotes, keyEvents } = sec
@@ -684,8 +683,11 @@ function EarTrainer() {
 
       if (!resumeFromPause) {
         stopPlayback({ keepPreparing: true, keepRecovery: playbackRecoveryAttemptRef.current })
+        carPlayMediaBridge.activate().catch(() => {})
       } else {
         clearTimerList(noteTimersRef)
+        noteSchedulerRef.current?.stop()
+        noteSchedulerRef.current = null
         releaseActiveNotes(activeNotesRef)
         audioPlayerRef.current?.stop()
       }
@@ -781,11 +783,6 @@ function EarTrainer() {
 
       if (midiNotes.length) {
         notePendingRef.current = []
-        // Size the note queue to the measured route latency: on Bluetooth the
-        // output buffer is 200–500ms+ and ctx.currentTime advances in bursts —
-        // a 0.4s horizon would run dry during a stall and drop notes. Speakers
-        // keep the 0.4s minimum. Enqueued notes are cancelled on stop/seek, so
-        // a longer horizon is free.
         const outLatency = audioContext?.outputLatency || audioContext?.baseLatency || 0
         const lookaheadS = Math.max(AUDIO_LOOKAHEAD_S, Math.min(AUDIO_LOOKAHEAD_MAX_S, outLatency + 0.6))
         scheduleNotesAudioClock(midiNotes, {
@@ -793,7 +790,7 @@ function EarTrainer() {
           tempo: effectiveTempo,
           resumeRegionBeat,
           looping: isLoopingRef.current,
-          timerRef: noteTimersRef,
+          schedulerRef: noteSchedulerRef,
           pendingRef: notePendingRef,
           lookaheadS,
         })
@@ -849,6 +846,12 @@ function EarTrainer() {
 
       playbackStateRef.current = 'playing'
       setPlaybackState('playing')
+      carPlayMediaBridge.setPlaybackState('playing')
+      carPlayMediaBridge.updatePositionState({
+        duration: (regionBeats / effectiveTempo) * 60,
+        position: (resumeRegionBeat / effectiveTempo) * 60,
+        playbackRate: 1,
+      })
       // Silence detection: full-song audio and drones sound continuously; for
       // MIDI sources a note must be due at the sampled cursor position —
       // a rest must not be mistaken for dead output. cursorRef is a 0..1
@@ -912,12 +915,12 @@ function EarTrainer() {
   // resumes it) instead of letting a stale timer burst fire on return.
   useEffect(() => {
     const handleHidden = () => {
-      if (playbackState === 'playing') pausePlayback()
-      // 'ambient' drops Now-Playing eligibility — the lock-screen banner
-      // dismisses as soon as playback isn't running. iOS suspends the context
-      // itself once the session deactivates; we deliberately do NOT suspend()
-      // it here — a manual suspend races the OS's own interruption handling
-      // and can leave the context stuck dead after a quick away-and-back.
+      // CarPlay / Screen-Lock Continuity: when actively playing or droning,
+      // keep the audio session and Web-Worker scheduler running when the
+      // iPhone screen locks in the car! Only drop to 'ambient' when idle.
+      if (playbackStateRef.current === 'playing' || dronePlayingRef.current) {
+        return
+      }
       try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
       try { navigator.mediaSession && (navigator.mediaSession.playbackState = 'none') } catch (_) {}
     }
@@ -1157,6 +1160,49 @@ function EarTrainer() {
     setSelected({ artist, title, entry })
     loadSection(artist, title, entry)
   }, [selected, loadSection])
+
+  // Flattened catalog sections for CarPlay / steering-wheel Prev/Next track buttons
+  const flatSections = useMemo(() => {
+    if (!catalog?.artists) return []
+    const list = []
+    for (const a of catalog.artists) {
+      for (const s of a.songs || []) {
+        for (const entry of s.sections || []) {
+          list.push({ artist: a.name, title: s.title, entry })
+        }
+      }
+    }
+    return list
+  }, [catalog])
+
+  const stepCatalogSection = useCallback((delta) => {
+    if (!flatSections.length) return
+    const curId = selected?.entry?.id
+    const idx = flatSections.findIndex(x => x.entry.id === curId)
+    const nextIdx = idx < 0 ? 0 : (idx + delta + flatSections.length) % flatSections.length
+    const target = flatSections[nextIdx]
+    if (target) selectSection(target.artist, target.title, target.entry)
+  }, [flatSections, selected, selectSection])
+
+  // Keep CarPlay / Now Playing metadata & action handlers synced
+  useEffect(() => {
+    if (!selected) return
+    carPlayMediaBridge.updateMetadata({
+      title: `${selected.title} — ${selected.entry.label}`,
+      artist: selected.artist,
+      album: `${settings.key} ${settings.keyMode} · ${settings.tempo} BPM · EarMaster Pro`,
+    })
+  }, [selected, settings.key, settings.keyMode, settings.tempo])
+
+  useEffect(() => {
+    carPlayMediaBridge.setActionHandlers({
+      onPlay: () => { if (playbackStateRef.current !== 'playing') playRef.current?.() },
+      onPause: () => { if (playbackStateRef.current === 'playing') pausePlayback() },
+      onStop: () => stopPlayback(),
+      onPreviousTrack: () => stepCatalogSection(-1),
+      onNextTrack: () => stepCatalogSection(1),
+    })
+  }, [pausePlayback, stopPlayback, stepCatalogSection])
 
   // After a context rebuild the GranularPlayer is bound to the dead context —
   // rebind it in place. initialize() drops the stale worklet/gain and clears
