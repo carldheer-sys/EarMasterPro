@@ -17,7 +17,7 @@
  *    Safari's lazy-loading.
  */
 
-const CARRIER_SAMPLE_RATE = 22050
+const CARRIER_SAMPLE_RATE = 44100
 const CARRIER_SECONDS = 2
 
 /**
@@ -142,8 +142,16 @@ export class CarPlayMediaBridge {
   }
 
   /**
-   * Call inside a user gesture (`play()`) to start the carrier `<audio>`
-   * element and claim the CarPlay buffered Media channel.
+   * Call inside a user gesture (`play()`).
+   * IMPORTANT for A/V sync on CarPlay:
+   * - While the app is visible on screen (`document.hidden === false`), we
+   *   only unlock/prime the element once (play then immediately pause) and
+   *   keep it PAUSED. An actively-playing `<audio>` element forces CarPlay
+   *   into its 1.5-2.0s buffered Media stream, causing a large visual-vs-audio
+   *   delay; keeping it paused while visible lets `AudioContext` use CarPlay's
+   *   low-latency Real-Time PCM stream (~80-150ms).
+   * - When the screen locks (`document.hidden === true`), `setBackgroundActive(true)`
+   *   starts the looping carrier so iOS keeps the background WebKit process alive.
    */
   async activate() {
     try {
@@ -160,18 +168,50 @@ export class CarPlayMediaBridge {
       this._prebufferPromise = null
     }
 
+    const isHidden = typeof document !== 'undefined' && document.hidden
     try {
-      if (el.paused) {
+      if (!this._primed) {
+        this._primed = true
         await Promise.race([
           Promise.resolve(el.play()).catch(() => {}),
-          new Promise((r) => setTimeout(r, 600)),
+          new Promise((r) => setTimeout(r, 400)),
         ])
+        if (!isHidden) {
+          try { el.pause() } catch (_) {}
+        }
+      } else if (isHidden && el.paused) {
+        await Promise.race([
+          Promise.resolve(el.play()).catch(() => {}),
+          new Promise((r) => setTimeout(r, 400)),
+        ])
+      } else if (!isHidden && !el.paused) {
+        try { el.pause() } catch (_) {}
       }
       this._active = !el.paused
     } catch (_) {}
 
     this.setPlaybackState('playing')
-    return this._active
+    return true
+  }
+
+  /**
+   * Toggle the looping `<audio>` carrier when the iPhone screen locks/unlocks
+   * during active playback:
+   * - `hidden = true`: play the carrier so iOS keeps WebKit alive in background
+   * - `hidden = false`: pause the carrier so CarPlay returns to low-latency PCM
+   */
+  setBackgroundActive(hidden) {
+    const el = this.el
+    if (!el) return
+    try {
+      if (hidden) {
+        if (el.paused) el.play()?.catch?.(() => {})
+        this._active = true
+      } else {
+        if (!el.paused) el.pause()
+        this._active = false
+      }
+    } catch (_) {}
   }
 
   /**

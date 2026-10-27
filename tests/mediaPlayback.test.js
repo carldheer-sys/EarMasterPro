@@ -19,7 +19,7 @@ vi.mock('tone', () => ({}))
 import { encodeWavPcm16, encodeWavPcm16Async, stretchBufferOla, stretchBufferOlaAsync, MediaSongPlayer } from '../packages/common/src/lib/mediaPlayback.js'
 import { bounceSection } from '../packages/common/src/lib/sectionBounce.js'
 import SampleLibrary from '../packages/common/src/lib/Tonejs-Instruments.js'
-import { INSTRUMENT_OPTIONS, SYNTH_TYPES, tonicToDroneStem } from '../packages/common/src/lib/audioEngine.js'
+import audioEngine, { INSTRUMENT_OPTIONS, SYNTH_TYPES, tonicToDroneStem } from '../packages/common/src/lib/audioEngine.js'
 import { AdaptiveAudioScheduler, DEFAULT_BASE_LOOKAHEAD_S, DEFAULT_MAX_LOOKAHEAD_S } from '../packages/common/src/lib/carplayScheduler.js'
 import { createDitheredKeepaliveWavBlob, prebufferAudioElement, CarPlayMediaBridge } from '../packages/common/src/lib/carplayMediaBridge.js'
 
@@ -347,5 +347,19 @@ describe('CarPlay Wi-Fi AdaptiveAudioScheduler & CarPlayMediaBridge', () => {
     expect(prevCalled).toBe(1)
     expect(nextCalled).toBe(1)
     vi.unstubAllGlobals()
+  })
+
+  it('CarPlayMediaBridge keeps carrier paused while visible and runs it only when backgrounded', () => {
+    const bridge = new CarPlayMediaBridge()
+    bridge.el = fakeAudioEl()
+    bridge.el.paused = false
+    bridge.setBackgroundActive(false)
+    expect(bridge.el.paused).toBe(true)
+    bridge.setBackgroundActive(true)
+    expect(bridge.el.paused).toBe(false)
+  })
+
+  it('audioEngine.getOutputLatencySec returns 0 safely when context is absent', () => {
+    expect(audioEngine.getOutputLatencySec()).toBe(0)
   })
 })

@@ -913,15 +913,54 @@ class AudioEngine {
     try { Tone.getTransport().pause() } catch (_) {}
   }
 
+  /**
+   * Dynamic Output Latency (seconds): combines Web Audio `outputLatency` +
+   * `baseLatency` with `getOutputTimestamp()` ring-buffer lag
+   * (`currentTime - contextTime`, which iOS WebKit populates even when
+   * `outputLatency` is undefined). Used to synchronize the visual playhead
+   * with CarPlay / Bluetooth speaker output without manual sliders.
+   */
+  getOutputLatencySec() {
+    try {
+      const raw = Tone.getContext()?.rawContext
+      const native = raw?._nativeContext ?? raw
+      if (!native) return 0
+      const reported = (Number(native.outputLatency) || Number(raw?.outputLatency) || 0)
+        + (Number(native.baseLatency) || Number(raw?.baseLatency) || 0)
+      let tsLag = 0
+      if (typeof native.getOutputTimestamp === 'function') {
+        const ts = native.getOutputTimestamp()
+        if (ts && Number.isFinite(ts.contextTime) && ts.contextTime > 0 && Number.isFinite(native.currentTime)) {
+          tsLag = Math.max(0, native.currentTime - ts.contextTime)
+        }
+      }
+      const measured = Math.min(1.5, Math.max(0, Math.max(reported, tsLag)))
+      if (this._smoothedLatencySec == null) {
+        this._smoothedLatencySec = measured
+      } else {
+        this._smoothedLatencySec = this._smoothedLatencySec * 0.75 + measured * 0.25
+      }
+      return this._smoothedLatencySec
+    } catch (_) {
+      return 0
+    }
+  }
+
   startPositionTracking = () => {
     this.stopPositionTracking()
+    this._smoothedLatencySec = null
     let lastUpdate = 0
     const throttleMs = 16
     
     const updateLoop = (timestamp) => {
-      if (Tone.getTransport().state === 'started' && this.totalTicks > 0) {
+      const transport = Tone.getTransport()
+      if (transport.state === 'started' && this.totalTicks > 0) {
         if (timestamp - lastUpdate >= throttleMs) {
-          let progress = Tone.getTransport().ticks / this.totalTicks
+          const ppq = transport.PPQ || 192
+          const bpm = transport.bpm?.value || 120
+          const latencyTicks = (this.getOutputLatencySec() * bpm / 60) * ppq
+          const audibleTicks = Math.max(0, transport.ticks - latencyTicks)
+          let progress = audibleTicks / this.totalTicks
           
           if (progress > 1) progress = 1
           

@@ -395,6 +395,7 @@ function EarTrainer() {
   const playbackRecoveryAttemptRef = useRef(0)
   const playRef = useRef(null)
   const lastRawContextRef = useRef(null)
+  const routeChangedRef = useRef(false) // true when USB/CarPlay/BT route changed while idle/paused
   const loadTokenRef = useRef(0)
   const audioAbortRef = useRef(null)
   const staleRetryRef = useRef(null)
@@ -511,7 +512,9 @@ function EarTrainer() {
   const pausePlayback = useCallback(() => {
     if (playbackState !== 'playing') return
     const { startBeat, effectiveTempo } = currentRegionRef.current
-    const elapsedBeats = Math.max(0, (Tone.now() - playbackStartTimeRef.current) * effectiveTempo / 60)
+    const latencySec = audioEngine.getOutputLatencySec?.() || 0
+    const elapsedSec = Math.max(0, Tone.now() - playbackStartTimeRef.current - latencySec)
+    const elapsedBeats = elapsedSec * effectiveTempo / 60
     pausedBeatRef.current = startBeat + elapsedBeats
     clearTimerList(noteTimersRef)
     noteSchedulerRef.current?.stop()
@@ -704,10 +707,12 @@ function EarTrainer() {
       }
 
       // Engine-level health check INSIDE the gesture, BEFORE we bind anything:
-      // rebuilds on stale (>20min)/closed/blocked contexts — including iOS
-      // 'interrupted', which resume() can never escape (its promise hangs
-      // forever). Doing it here means the context we bind below is final.
-      const active = await audioEngine.ensureActive({ loadDefaultPiano: false })
+      // rebuilds on stale (>20min)/closed/blocked contexts — or when a USB /
+      // CarPlay / Bluetooth route change happened while idle/paused
+      // (routeChangedRef), so we never play through a stale pre-USB buffer queue.
+      const forceRouteRebuild = routeChangedRef.current && !resumeFromPause
+      routeChangedRef.current = false
+      const active = await audioEngine.ensureActive({ loadDefaultPiano: false, forceRebuild: forceRouteRebuild })
       if (active.contextChanged || lastRawContextRef.current !== active.rawContext) {
         lastRawContextRef.current = active.rawContext
         setContextEpoch(e => e + 1)
@@ -917,17 +922,19 @@ function EarTrainer() {
     const handleHidden = () => {
       // CarPlay / Screen-Lock Continuity: when actively playing or droning,
       // keep the audio session and Web-Worker scheduler running when the
-      // iPhone screen locks in the car! Only drop to 'ambient' when idle.
+      // iPhone screen locks in the car, and start the background `<audio>`
+      // carrier so iOS keeps the WebKit process alive while the screen is off.
       if (playbackStateRef.current === 'playing' || dronePlayingRef.current) {
+        carPlayMediaBridge.setBackgroundActive(true)
         return
       }
       try { if (navigator.audioSession) navigator.audioSession.type = 'ambient' } catch (_) {}
       try { navigator.mediaSession && (navigator.mediaSession.playbackState = 'none') } catch (_) {}
     }
     const handleVisible = async () => {
-      // NOTE: do not set audioSession.type='playback' here — 'playback' is only
-      // set inside real user gestures (play/keyboard) so the lock-screen banner
-      // is never eligible while nothing is playing.
+      // Screen is visible again: pause the background `<audio>` carrier so
+      // CarPlay returns to its low-latency Real-Time PCM channel for A/V sync.
+      carPlayMediaBridge.setBackgroundActive(false)
       const toneState = Tone.getContext().state
       const rawState = Tone.getContext().rawContext?.state
       if (toneState === 'closed' || rawState === 'closed') {
@@ -990,15 +997,22 @@ function EarTrainer() {
     return () => native.removeEventListener('statechange', onStateChange)
   }, [contextEpoch])
 
-  // Bluetooth device (dis)connect fires devicechange and usually a session
-  // interruption. While playing, don't rebuild — a route change resolves in
-  // well under a second; re-assert 'playback' and nudge resume so the
-  // statechange auto-heal + watchdog finish the job if the OS needs longer.
+  // USB CarPlay / Bluetooth device (dis)connect fires devicechange.
+  // - If idle/paused (e.g. plugging in the USB cable before pressing Play),
+  //   flag routeChangedRef so the next Play swaps to a fresh AudioContext
+  //   matched to the new CarPlay route's native sample rate and IO buffer.
+  // - If actively playing, reset the smoothed latency tracker so
+  //   getOutputLatencySec() immediately adapts to the new route's buffer.
   useEffect(() => {
     const md = navigator.mediaDevices
     if (!md?.addEventListener) return
     const onDeviceChange = () => {
-      if (playbackStateRef.current !== 'playing' || document.visibilityState !== 'visible') return
+      audioEngine._smoothedLatencySec = null
+      if (playbackStateRef.current !== 'playing') {
+        routeChangedRef.current = true
+        return
+      }
+      if (document.visibilityState !== 'visible') return
       try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch (_) {}
       if (Tone.getContext().state === 'suspended') resumeWithTimeout(Tone.getContext().resume(), 800)
       const raw = Tone.getContext()?.rawContext
